@@ -15,3 +15,6 @@ verify/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 仅在工作区形态下生成（说明本目录是生成物）；在仓库里它就是项目本体，不需要这行说明
+GENERATED.md
