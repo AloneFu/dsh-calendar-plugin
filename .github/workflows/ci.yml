@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 回归（node ${{ matrix.node }}）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 版本信息
+        run: node --version && npm --version
+
+      # 5 套回归（不需要浏览器、不需要 Obsidian）：解析/写回 127 · 展示/时间轴 123 · 向导 38 · 自动展开 16 · 面板高度 13
+      - name: 回归测试
+        run: npm test
+
+      - name: 页面体积守卫（供交付 gate 的 64KB 头切片 UTF-8 校验）
+        run: |
+          node -e "
+          const fs = require('fs');
+          const buf = fs.readFileSync('standalone/calendar.html');
+          if (buf.length >= 65536) { console.error('页面 ' + buf.length + ' B ≥ 65536'); process.exit(1); }
+          // 同时验证整篇与"头部 64KB 切片"都是合法 UTF-8（交付 gate 的切法）
+          new TextDecoder('utf-8', { fatal: true }).decode(buf);
+          new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, 65536));
+          console.log('页面 ' + buf.length + ' B < 65536，且 UTF-8 校验通过');
+          "
+
+      - name: 打包（npm pack）
+        run: node scripts/pack.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-calendar-tgz-node${{ matrix.node }}
+          path: dist/*.tgz
+          if-no-files-found: error

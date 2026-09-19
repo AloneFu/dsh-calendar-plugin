@@ -31,7 +31,17 @@ dsh plugin --profile web add "<路径>\dsh-calendar-1.0.0.tgz"
 # 然后重启 DSH；或让 AI 用 dev_install_package 热装配（免重启）
 ```
 
-**方式三：手动挂载**
+**方式三：从 git 仓库**（本仓库就是完整的插件包）
+
+```powershell
+git clone https://github.com/AloneFu/dsh-calendar-plugin.git D:\plugins\dsh-calendar
+dsh plugin --profile web add "D:\plugins\dsh-calendar"
+# 或手动：dependencies 写 "dsh-calendar": "link:D:\plugins\dsh-calendar" + bundles 加 dsh-calendar
+```
+
+想自己出 tgz：在克隆下来的目录里跑 `node scripts/pack.mjs`（5 套回归 → 体积守卫 → 产物在 `dist/`）。
+
+**方式四：手动挂载**
 
 1. 把包解开放到任意目录，例如 `D:\plugins\dsh-calendar`
 2. `profiles\<profile>\package.json` 的 `dependencies` 加 `"dsh-calendar": "link:D:\\plugins\\dsh-calendar"`
