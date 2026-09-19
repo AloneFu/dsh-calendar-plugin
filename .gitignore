@@ -1,0 +1,17 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tgz
+
+# 本地验证与临时文件
+verify/
+.setup-probe*
+.setup-probe-home/
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,48 @@
+{
+  "name": "dsh-calendar",
+  "version": "1.0.0",
+  "description": "把 Obsidian 的日记、待办与时间轴内联进 DSH 右侧栏：月历 + Day Planner 风格时间轴 + Calendar 字数点，勾选/改内容/改时间会写回你的 Markdown",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "standalone",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "DEVELOPMENT.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "calendar",
+    "obsidian",
+    "day-planner",
+    "daily-notes",
+    "tasks"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs --detect",
+    "test": "node scripts/tasks-parse.test.mjs && node scripts/tasks-render.test.mjs && node scripts/fit-logic.test.mjs && node scripts/auto-open.test.mjs && node scripts/setup.test.mjs",
+    "verify:ui": "node scripts/verify-ui.mjs http://127.0.0.1:3080/dsh-calendar/preview ./verify"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

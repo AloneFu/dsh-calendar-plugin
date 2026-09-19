@@ -1,0 +1,1792 @@
+<!doctype html>
+<html lang="zh-CN" data-cal-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>日历</title>
+<!--
+  简约日历 · 单文件零依赖版（DSH 插件 dsh-calendar 的唯一真源）
+  - 无外部请求：不加载字体、图片、脚本；图标为内联 SVG；日期计算只用原生 Date
+  - 视觉：iOS 日历语言（大标题 / 七列网格 / 圆角卡片 / 今日高亮 / 无边框无阴影）
+  - 配色：默认跟随系统 prefers-color-scheme；?theme=light|dark 可强制；?embed=1 供面板内嵌
+  - 交互：左右箭头 + 指针滑动手势 + 键盘 ←→ 切月；点击某天选中；默认选中今天；周起始日 = 周一
+-->
+<style>
+  /* ── 设计令牌：挂在 html 上，页面底与卡片都能读到；深色覆盖，embed 时宿主可覆盖 ── */
+  html {
+    --cal-page: #f2f2f7;          /* 页面底（iOS systemGroupedBackground） */
+    --cal-page-2: #e7e7ef;        /* 页面底渐变末端 */
+    --cal-card: #ffffff;          /* 圆角卡片 */
+    --cal-card-2: #fafafd;        /* 卡片渐变末端 */
+    --cal-ink: #000000;           /* 主文字 */
+    --cal-ink-2: rgba(60, 60, 67, 0.62);
+    --cal-ink-3: rgba(60, 60, 67, 0.30);
+    --cal-hover: rgba(120, 120, 128, 0.14);
+    --cal-accent: #007aff;        /* iOS 蓝：选中态圆形填充 */
+    --cal-accent-ink: #ffffff;
+    --cal-today: #ff3b30;         /* iOS 红：今天（未被选中时） */
+    --cal-warn: #ff9500;          /* iOS 橙：高优先级任务点 */
+    --cal-wash: rgba(0, 122, 255, 0.055);   /* 内嵌面板时顶部的柔和渐变 */
+    --cal-ripple: rgba(0, 122, 255, 0.22);  /* 点击波纹 */
+    --cal-outside: 0.28;          /* 非当月日期的弱化透明度 */
+    --cal-radius: 22px;
+  }
+  html[data-cal-theme='dark'] {
+    --cal-page: #000000;
+    --cal-page-2: #121216;
+    --cal-card: #1c1c1e;
+    --cal-card-2: #141416;
+    --cal-ink: #ffffff;
+    --cal-ink-2: rgba(235, 235, 245, 0.60);
+    --cal-ink-3: rgba(235, 235, 245, 0.30);
+    --cal-hover: rgba(120, 120, 128, 0.32);
+    --cal-today: #ff453a;
+    --cal-warn: #ff9f0a;
+    --cal-wash: rgba(10, 132, 255, 0.10);
+    --cal-ripple: rgba(10, 132, 255, 0.30);
+    --cal-outside: 0.32;
+  }
+  @media (prefers-color-scheme: dark) {
+    html[data-cal-theme='auto'] {
+      --cal-page: #000000;
+      --cal-page-2: #121216;
+      --cal-card: #1c1c1e;
+      --cal-card-2: #141416;
+      --cal-ink: #ffffff;
+      --cal-ink-2: rgba(235, 235, 245, 0.60);
+      --cal-ink-3: rgba(235, 235, 245, 0.30);
+      --cal-hover: rgba(120, 120, 128, 0.32);
+      --cal-today: #ff453a;
+      --cal-warn: #ff9f0a;
+      --cal-wash: rgba(10, 132, 255, 0.10);
+      --cal-ripple: rgba(10, 132, 255, 0.30);
+      --cal-outside: 0.32;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+    background: linear-gradient(180deg, var(--cal-page, #f2f2f7) 0%, var(--cal-page-2, #e7e7ef) 100%);
+    background-attachment: fixed;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+      'Segoe UI', system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ── 日历主体：一张圆角卡片，靠留白与渐变分层，不用边框与阴影 ────── */
+  .cal {
+    width: 100%;
+    max-width: 420px;
+    padding: 20px 16px 18px;
+    border-radius: var(--cal-radius);
+    background: linear-gradient(180deg, var(--cal-card) 0%, var(--cal-card-2, var(--cal-card)) 100%);
+    color: var(--cal-ink);
+  }
+
+  /* ── 顶部：控件行 + 大标题 + 选中日期说明 ────── */
+  .cal-head { padding: 2px 6px 0; }
+
+  .cal-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
+  }
+  .cal-bar-spacer { flex: 1 1 auto; }
+
+  .cal-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--cal-accent);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    padding: 7px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+  .cal-btn:hover { background: var(--cal-hover); }
+  .cal-btn:focus-visible { outline: 2px solid var(--cal-accent); outline-offset: 1px; }
+  .cal-btn[hidden] { display: none; }
+
+  .cal-arrow {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--cal-ink-2);
+  }
+  .cal-arrow:hover { color: var(--cal-ink); }
+  .cal-arrow svg { width: 16px; height: 16px; display: block; }
+
+  .cal-title {
+    margin: 14px 0 0;
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .cal-subtitle {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--cal-ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 星期表头 ────── */
+  .cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    margin-top: 18px;
+    padding-bottom: 4px;
+  }
+  .cal-weekday {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cal-ink-2);
+    letter-spacing: 0.02em;
+  }
+
+  /* ── 日期网格：7 列 × 6 行，星期一为首列 ────── */
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    margin-top: 2px;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y;           /* 纵向留给页面滚动，横向留给切月手势 */
+    cursor: default;
+  }
+  .cal-grid:focus { outline: none; }
+  .cal-grid:focus-visible { outline: 2px solid var(--cal-accent); outline-offset: 4px; border-radius: 12px; }
+  .cal-grid.is-dragging { cursor: grabbing; }
+
+  .cal-day {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+    height: 46px;
+    display: flex;
+    flex-direction: column;        /* 数字圆在上、任务点在下 */
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    cursor: pointer;
+  }
+  .cal-day-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;       /* 日期数字居中 */
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+    transition: background-color 0.14s ease, color 0.14s ease;
+  }
+  /* ── 任务密度点：一天最多三枚，按"最紧急优先"排序后取前三个 ────── */
+  .cal-dots {
+    height: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+  }
+  .cal-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--cal-accent);
+    opacity: 0.75;
+  }
+  .cal-dot.is-overdue { background: var(--cal-today); opacity: 1; }
+  .cal-dot.is-priority { background: var(--cal-warn); opacity: 1; }
+  .cal-dot.is-done { background: var(--cal-ink); opacity: 0.22; }
+  /* 日记字数点（Calendar 插件风格）：中性灰，排在任务点前面 */
+  .cal-dot.is-note { background: var(--cal-ink); opacity: 0.42; }
+  .cal-day:hover .cal-day-num { background: var(--cal-hover); }
+  .cal-day:focus-visible { outline: none; }
+  .cal-day:focus-visible .cal-day-num { outline: 2px solid var(--cal-accent); outline-offset: 1px; }
+
+  .cal-day.is-outside { opacity: var(--cal-outside); }          /* 非当月日期弱化 */
+  .cal-day.is-today .cal-day-num { color: var(--cal-today); font-weight: 600; }
+  .cal-day.is-selected .cal-day-num {                            /* 选中态：iOS 蓝圆形填充 */
+    background: var(--cal-accent);
+    color: var(--cal-accent-ink);
+    font-weight: 600;
+  }
+  .cal-day.is-selected:hover .cal-day-num { background: var(--cal-accent); }
+
+  /* ── 切月动效：方向感的一次轻推（跟随手势时用即时位移，不带过渡） ────── */
+  .cal-grid.is-anim { animation: cal-push-in 0.18s ease-out; }
+  .cal-grid.is-anim-next { animation-name: cal-push-in-next; }
+  .cal-grid.is-anim-prev { animation-name: cal-push-in-prev; }
+  .cal-grid.is-dragging { transition: none; }
+  @keyframes cal-push-in-next {
+    from { transform: translateX(14px); opacity: 0.4; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  @keyframes cal-push-in-prev {
+    from { transform: translateX(-14px); opacity: 0.4; }
+    to   { transform: translateX(0);     opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cal-grid.is-anim { animation: none; }
+    .cal-day-num { transition: none; }
+  }
+
+  /* ── 选中日的任务列表：靠留白分段，全程不加边框与阴影 ────── */
+  .cal-tasks { margin-top: 14px; padding: 0 4px 2px; }
+  .cal-tasks[hidden] { display: none; }
+  .cal-tasks-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+  .cal-tasks-title {
+    flex: 1 1 auto;
+    font-size: 13px;
+    color: var(--cal-ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-tasks-refresh {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--cal-accent);
+    font: inherit;
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .cal-tasks-refresh:hover { background: var(--cal-hover); }
+  .cal-tasks-refresh[hidden] { display: none; }
+  .cal-task-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; }
+  .cal-group-title {
+    list-style: none;
+    margin: 8px 4px 2px;
+    font-size: 11px;
+    color: var(--cal-ink-3);
+  }
+  .cal-task { display: flex; align-items: flex-start; gap: 8px; padding: 5px 4px; border-radius: 8px; }
+  .cal-task:hover { background: var(--cal-hover); }
+  .cal-task-state {
+    flex: none;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    width: 18px;
+    text-align: center;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--cal-ink-3);
+    cursor: pointer;
+    border-radius: 50%;
+  }
+  .cal-task-state:disabled { cursor: default; }
+  .cal-task-state:not(:disabled):hover { background: var(--cal-hover); color: var(--cal-ink); }
+  .cal-task-state:focus-visible { outline: 2px solid var(--cal-accent); outline-offset: 1px; }
+  .cal-task.is-done .cal-task-state,
+  .cal-task.is-cancelled .cal-task-state { color: var(--cal-accent); }
+  .cal-task-text { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+  .cal-task.is-done .cal-task-text { color: var(--cal-ink-3); text-decoration: line-through; }
+  .cal-task.is-cancelled .cal-task-text { color: var(--cal-ink-3); text-decoration: line-through; opacity: 0.75; }
+  .cal-task.is-overdue .cal-task-text { color: var(--cal-today); }
+  .cal-task.is-overdue .cal-task-meta { color: var(--cal-today); }
+  .cal-task-tag { color: var(--cal-accent); }
+  .cal-task-meta {
+    flex: none;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--cal-ink-3);
+    white-space: nowrap;
+  }
+  .cal-tasks-note, .cal-tasks-empty, .cal-tasks-notice {
+    margin: 8px 4px 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--cal-ink-3);
+  }
+  .cal-tasks-notice { color: var(--cal-warn); }
+  .cal-tasks-note[hidden], .cal-tasks-empty[hidden], .cal-tasks-notice[hidden] { display: none; }
+
+  /* ── 日记（Obsidian daily note）：折叠块，正文用 pre-wrap 保留换行 ────── */
+  .cal-note { margin: 12px 4px 0; }
+  .cal-note[hidden] { display: none; }
+  .cal-note-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-height: 22px;
+    font-size: 12px;
+    color: var(--cal-ink-2);
+    cursor: pointer;
+    list-style: none;
+    border-radius: 6px;
+    padding: 2px 2px;
+  }
+  .cal-note-head::-webkit-details-marker { display: none; }
+  .cal-note-head:hover { color: var(--cal-ink); }
+  .cal-note-glyph { flex: none; font-size: 11px; }
+  .cal-note-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-note-meta { flex: none; color: var(--cal-ink-3); font-variant-numeric: tabular-nums; }
+  .cal-note-text {
+    margin: 6px 0 0;
+    padding: 0 2px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--cal-ink-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .cal-note-new {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--cal-accent);
+    font: inherit;
+    font-size: 13px;
+    margin: 10px 4px 0;
+    padding: 5px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .cal-note-new:hover { background: var(--cal-hover); }
+  .cal-note-new[hidden] { display: none; }
+
+  /* ── 点击波纹：跟随指针的柔和扩散（可点元素统一切到 .cal-rippleable） ────── */
+  .cal-rippleable { position: relative; overflow: hidden; }
+  .cal-ripple {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    pointer-events: none;
+    background: radial-gradient(circle, var(--cal-ripple, rgba(0, 122, 255, 0.22)) 0%, transparent 70%);
+    animation: cal-ripple-out 520ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  }
+  @keyframes cal-ripple-out {
+    0%   { transform: scale(0.2); opacity: 0.85; }
+    100% { transform: scale(var(--cal-ripple-scale, 4)); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cal-ripple { display: none; }
+  }
+
+  /* ── 任务正文可编辑：悬停给出"能改"的暗示，编辑时换成输入框 ────── */
+  .cal-task-text.is-editable { cursor: text; border-radius: 4px; }
+  .cal-task-text.is-editable:hover { text-decoration: underline dotted var(--cal-ink-3); text-underline-offset: 3px; }
+  .cal-task-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: -2px 0;
+    padding: 2px 6px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--cal-ink);
+    background: var(--cal-hover);
+    border: 0;
+    border-radius: 6px;
+    outline: 2px solid var(--cal-accent);
+    outline-offset: 1px;
+  }
+
+  /* ── Day Planner 风格：进度条 + 紧凑时间轴 + 新建待办 ────── */
+  .cal-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 4px 0;
+    font-size: 11px;
+    color: var(--cal-ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-progress[hidden] { display: none; }
+  .cal-progress-bar {
+    flex: 1 1 auto;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--cal-hover);
+    overflow: hidden;
+  }
+  .cal-progress-bar > i {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: var(--cal-accent);
+    transition: width 0.25s ease;
+  }
+  .cal-progress-text { flex: none; }
+
+  .cal-timeline { margin: 10px 4px 0; }
+  .cal-timeline[hidden] { display: none; }
+  .cal-hour {
+    position: relative;
+    display: flex;
+    gap: 8px;
+    min-height: 26px;
+    padding: 3px 0;
+  }
+  .cal-hour-label {
+    flex: none;
+    width: 40px;
+    text-align: right;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--cal-ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-hour-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-left: 1px solid var(--cal-hover);   /* 时间轴主轨 */
+    padding-left: 8px;
+  }
+  .cal-hour.is-empty .cal-hour-body { min-height: 16px; }
+  .cal-gap {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 11px;
+    color: var(--cal-ink-3);
+  }
+  .cal-gap-label { flex: none; width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  .cal-gap-text { flex: 1 1 auto; border-left: 1px solid var(--cal-hover); padding-left: 8px; }
+  .cal-now {
+    position: absolute;
+    left: 40px;
+    right: 0;
+    height: 0;
+    border-top: 1px solid var(--cal-today);
+    pointer-events: none;
+  }
+  .cal-now::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cal-today);
+  }
+  .cal-now-label {
+    position: absolute;
+    right: 0;
+    top: -8px;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--cal-today);
+    background: var(--cal-card-2, transparent);
+    padding: 1px 3px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-time-chip {
+    flex: none;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--cal-accent);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 0 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-time-chip:hover { background: var(--cal-hover); }
+  .cal-time-editor { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .cal-time-input {
+    appearance: none;
+    border: 0;
+    border-radius: 6px;
+    background: var(--cal-hover);
+    color: var(--cal-ink);
+    font: inherit;
+    font-size: 12px;
+    padding: 2px 4px;
+    outline: 1px solid var(--cal-accent);
+  }
+  .cal-time-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--cal-accent);
+    font: inherit;
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .cal-time-btn:hover { background: var(--cal-hover); }
+  .cal-time-btn.is-muted { color: var(--cal-ink-3); }
+
+  .cal-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 4px 0;
+  }
+  .cal-add[hidden] { display: none; }
+  .cal-add-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    appearance: none;
+    border: 0;
+    border-radius: 8px;
+    background: var(--cal-hover);
+    color: var(--cal-ink);
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+  }
+  .cal-add-text::placeholder { color: var(--cal-ink-3); }
+  .cal-add-text:focus-visible, .cal-add-time:focus-visible { outline: 2px solid var(--cal-accent); outline-offset: 1px; }
+  .cal-add-time {
+    flex: none;
+    width: 84px;
+    appearance: none;
+    border: 0;
+    border-radius: 8px;
+    background: var(--cal-hover);
+    color: var(--cal-ink);
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-add-submit {
+    flex: none;
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--cal-accent);
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .cal-add-submit:hover { background: var(--cal-hover); }
+
+  /* ── 面板内嵌模式：铺满宿主、背景透明（宿主底色透出）、去掉卡片外观 ────── */
+  html.cal-embed, html.cal-embed body { background: transparent; }
+  html.cal-embed body {
+    display: block;
+    padding: 0;
+    min-height: 0;
+  }
+  html.cal-embed .cal {
+    max-width: none;
+    border-radius: 0;
+    /* 面板里底色来自宿主，只叠一层自上而下的柔和渐变，避免"糊成一片白" */
+    background-image: linear-gradient(180deg, var(--cal-wash) 0%, transparent 260px);
+    background-color: transparent;
+    padding: 14px 12px 18px;
+  }
+  html.cal-embed .cal-title { font-size: 26px; margin-top: 10px; }
+  html.cal-embed .cal-day { height: 44px; }
+  html.cal-embed .cal-day-num { width: 34px; height: 34px; font-size: 16px; }
+</style>
+</head>
+<body>
+  <main class="cal" id="cal" aria-label="月历">
+    <header class="cal-head">
+      <div class="cal-bar">
+        <button class="cal-btn cal-rippleable" id="calTodayBtn" type="button" hidden>今天</button>
+        <span class="cal-bar-spacer"></span>
+        <button class="cal-btn cal-arrow cal-rippleable" id="calPrev" type="button" aria-label="上一月">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 2.5 4.5 8l5.5 5.5" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="cal-btn cal-arrow cal-rippleable" id="calNext" type="button" aria-label="下一月">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M6 2.5 11.5 8 6 13.5" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <h1 class="cal-title" id="calTitle">—</h1>
+      <p class="cal-subtitle" id="calSubtitle">—</p>
+    </header>
+    <div class="cal-weekdays" id="calWeekdays" aria-hidden="true"></div>
+    <div class="cal-grid" id="calGrid" tabindex="0" role="group" aria-label="日期"></div>
+    <section class="cal-tasks" id="calTasks" aria-label="选中日期的任务" hidden>
+      <div class="cal-tasks-head">
+        <span class="cal-tasks-title" id="calTasksTitle"></span>
+        <button class="cal-tasks-refresh cal-rippleable" id="calTasksRefresh" type="button">刷新</button>
+      </div>
+      <div class="cal-progress" id="calProgress" hidden>
+        <span class="cal-progress-bar"><i id="calProgressFill"></i></span>
+        <span class="cal-progress-text" id="calProgressText"></span>
+      </div>
+      <div class="cal-timeline" id="calTimeline" hidden aria-label="当天时间轴"></div>
+      <ul class="cal-task-list" id="calTaskList"></ul>
+      <p class="cal-tasks-empty" id="calTasksEmpty" hidden></p>
+      <form class="cal-add" id="calAdd" hidden>
+        <input class="cal-add-text" id="calAddText" type="text" maxlength="200" placeholder="新建待办…" aria-label="新建待办">
+        <input class="cal-add-time" id="calAddTime" type="time" step="600" aria-label="开始时间（可留空）">
+        <button class="cal-add-submit cal-rippleable" id="calAddSubmit" type="submit">添加</button>
+      </form>
+      <p class="cal-tasks-notice" id="calTasksNotice" hidden></p>
+      <details class="cal-note" id="calNote" hidden>
+        <summary class="cal-note-head cal-rippleable">
+          <span class="cal-note-glyph" aria-hidden="true">📓</span>
+          <span class="cal-note-title" id="calNoteTitle"></span>
+          <span class="cal-note-meta" id="calNoteMeta"></span>
+        </summary>
+        <div class="cal-note-text" id="calNoteText"></div>
+      </details>
+      <button class="cal-note-new cal-rippleable" id="calNoteNew" type="button" hidden>新建这一天的日记</button>
+      <p class="cal-tasks-note" id="calTasksNote" hidden></p>
+    </section>
+  </main>
+
+<script>
+  // 文件说明：单文件零依赖月历 + Obsidian 任务/日记同步面板。
+  // 完整设计说明、语法表、写回护栏与验收记录见仓库里的两个 README（此处不再重复注释）。
+
+(function () {
+  'use strict'
+
+  var WEEKDAY_SHORT = ['一', '二', '三', '四', '五', '六', '日']
+  var WEEKDAY_FULL = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+  var CELLS = 42
+  var SWIPE_MIN = 48
+  var SWIPE_SLOP = 6
+
+  var query = new URLSearchParams(location.search)
+  var themeParam = (query.get('theme') || '').toLowerCase()
+  var embed = query.get('embed') === '1'
+  document.documentElement.dataset.calTheme =
+    (themeParam === 'light' || themeParam === 'dark') ? themeParam : 'auto'
+  if (embed) document.documentElement.classList.add('cal-embed')
+
+  var els = {
+    title: document.getElementById('calTitle'),
+    subtitle: document.getElementById('calSubtitle'),
+    weekdays: document.getElementById('calWeekdays'),
+    grid: document.getElementById('calGrid'),
+    prev: document.getElementById('calPrev'),
+    next: document.getElementById('calNext'),
+    todayBtn: document.getElementById('calTodayBtn'),
+    tasks: document.getElementById('calTasks'),
+    tasksTitle: document.getElementById('calTasksTitle'),
+    tasksRefresh: document.getElementById('calTasksRefresh'),
+    taskList: document.getElementById('calTaskList'),
+    tasksEmpty: document.getElementById('calTasksEmpty'),
+    tasksNotice: document.getElementById('calTasksNotice'),
+    tasksNote: document.getElementById('calTasksNote'),
+    progress: document.getElementById('calProgress'),
+    progressFill: document.getElementById('calProgressFill'),
+    progressText: document.getElementById('calProgressText'),
+    timeline: document.getElementById('calTimeline'),
+    add: document.getElementById('calAdd'),
+    addText: document.getElementById('calAddText'),
+    addTime: document.getElementById('calAddTime'),
+    note: document.getElementById('calNote'),
+    noteTitle: document.getElementById('calNoteTitle'),
+    noteMeta: document.getElementById('calNoteMeta'),
+    noteText: document.getElementById('calNoteText'),
+    noteNew: document.getElementById('calNoteNew')
+  }
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n) }
+  function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()) }
+  function keyOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) }
+  function mondayIndex(d) { return (d.getDay() + 6) % 7 }
+
+  var today = startOfDay(new Date())
+  var state = {
+    year: today.getFullYear(),
+    month: today.getMonth(),
+    selected: keyOf(today)
+  }
+
+  // #region 任务展示
+  var MAX_DOTS = 3
+  var PRIORITY_RANK = { highest: 0, high: 1, medium: 2, low: 3, lowest: 4 }
+  var PRIORITY_GLYPH = { highest: '🔺', high: '⏫', medium: '🔼', low: '🔽', lowest: '⏬' }
+  var STATE_GLYPH = { todo: '○', done: '✓', cancelled: '✕' }
+
+  function taskRank(task) {
+    if (task.state === 'todo') return 0
+    if (task.state === 'done') return 1
+    return 2
+  }
+
+  function taskKind(task, todayKey) {
+    if (task.state !== 'todo') return 'done'
+    if (task.date && task.date < todayKey) return 'overdue'
+    if (task.priority === 'highest' || task.priority === 'high') return 'priority'
+    return 'open'
+  }
+
+  function urgencyOf(task, todayKey) {
+    if (task.date && todayKey && task.date < todayKey) return 0
+    if (task.priority === 'highest' || task.priority === 'high') return 1
+    if (task.date) return 2
+    return 3
+  }
+
+  function sortDayTasks(tasks, todayKey) {
+    return tasks.slice().sort(function (a, b) {
+      var rank = taskRank(a) - taskRank(b)
+      if (rank !== 0) return rank
+      var urgency = urgencyOf(a, todayKey) - urgencyOf(b, todayKey)
+      if (urgency !== 0) return urgency
+      var pa = PRIORITY_RANK[a.priority] === undefined ? 9 : PRIORITY_RANK[a.priority]
+      var pb = PRIORITY_RANK[b.priority] === undefined ? 9 : PRIORITY_RANK[b.priority]
+      if (pa !== pb) return pa - pb
+      var da = a.date || '9999-12-31'
+      var db = b.date || '9999-12-31'
+      if (da !== db) return da < db ? -1 : 1
+      return String(a.text || '').localeCompare(String(b.text || ''), 'zh-Hans-CN')
+    })
+  }
+
+  function classifyDay(tasks, todayKey) {
+    var sorted = sortDayTasks(tasks || [], todayKey)
+    var open = 0
+    for (var i = 0; i < sorted.length; i++) if (sorted[i].state === 'todo') open += 1
+    return {
+      total: sorted.length,
+      open: open,
+      dots: sorted.slice(0, MAX_DOTS).map(function (task) { return taskKind(task, todayKey) })
+    }
+  }
+
+  function formatDayTitle(dateKey, count, todayKey) {
+    var parts = dateKey.split('-')
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+    var head = (dateKey === todayKey ? '今天 · ' : '') +
+      (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + WEEKDAY_FULL[mondayIndex(d)]
+    return count > 0 ? head + ' · ' + count + ' 个任务' : head
+  }
+
+  function taskMetaOf(task, todayKey) {
+    var meta = []
+    if (task.priority && PRIORITY_GLYPH[task.priority]) meta.push(PRIORITY_GLYPH[task.priority])
+    if (task.recurrence) meta.push('🔁')
+    if (task.dateSource === 'scheduled') meta.push('⏳')
+    else if (task.dateSource === 'start') meta.push('🛫')
+    else if (task.dateSource === 'note') meta.push('📓')
+    if (task.state === 'todo' && task.date && task.date < todayKey) meta.push('逾期')
+    return meta
+  }
+
+  function tasksUrl(refresh) {
+    if (query.get('tasks') === '0' || query.get('tasks') === 'off') return null
+    var parts = []
+    var session = query.get('session')
+    if (session) parts.push('session=' + encodeURIComponent(session))
+    var root = query.get('root')
+    if (root) parts.push('root=' + encodeURIComponent(root))
+    if (refresh) parts.push('refresh=1')
+    return '/dsh-calendar/tasks' + (parts.length ? '?' + parts.join('&') : '')
+  }
+
+  function rootQuery() {
+    var parts = []
+    var session = query.get('session')
+    if (session) parts.push('session=' + encodeURIComponent(session))
+    var root = query.get('root')
+    if (root) parts.push('root=' + encodeURIComponent(root))
+    return parts.length ? '?' + parts.join('&') : ''
+  }
+
+  function nextState(task) {
+    return task && task.state === 'done' ? 'todo' : 'done'
+  }
+
+  function formatBytes(bytes) {
+    var n = Number(bytes) || 0
+    if (n < 1024) return n + ' B'
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+    return (n / 1024 / 1024).toFixed(1) + ' MB'
+  }
+
+  function noteSummary(note) {
+    if (!note) return null
+    var meta = []
+    if (note.words) meta.push(formatWords(note.words))
+    else if (note.bytes) meta.push(formatBytes(note.bytes))
+    if (note.taskCount) meta.push(note.taskCount + ' 个任务')
+    return { title: '日记', meta: meta.join(' · ') }
+  }
+
+  function formatWords(count) {
+    var n = Math.max(0, Math.round(Number(count) || 0))
+    if (n < 1000) return n + ' 词'
+    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k 词'
+  }
+
+  function noteDotCount(note, wordsPerDot, maxNoteDots) {
+    if (!note) return 0
+    var words = Number(note.words) || 0
+    var step = Number(wordsPerDot) || 250
+    var cap = Math.max(1, Number(maxNoteDots) || 2)
+    if (words <= 0) return 0
+    return Math.min(cap, Math.max(1, Math.floor(words / step)))
+  }
+
+  function hasTime(task) {
+    return Boolean(task) && task.startMinutes !== null && task.startMinutes !== undefined
+  }
+
+  function effectiveEnd(task, defaultDuration) {
+    if (!hasTime(task)) return null
+    if (task.endMinutes !== null && task.endMinutes !== undefined) return task.endMinutes
+    return task.startMinutes + (Number(defaultDuration) || 30)
+  }
+
+  function formatDuration(minutes) {
+    var n = Math.max(0, Math.round(Number(minutes) || 0))
+    if (n < 60) return n + 'm'
+    var h = Math.floor(n / 60)
+    var m = n % 60
+    return m === 0 ? h + 'h' : h + 'h' + m + 'm'
+  }
+
+  function timeChipLabel(task) {
+    if (!hasTime(task) || !task.startTime) return ''
+    return task.endTime ? task.startTime + ' - ' + task.endTime : task.startTime
+  }
+
+  function clockMinutes(value) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim())
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null
+  }
+
+  function dayProgress(tasks) {
+    var total = tasks.length
+    var done = 0
+    var scheduled = 0
+    for (var i = 0; i < total; i++) {
+      if (tasks[i].state === 'done') done += 1
+      if (hasTime(tasks[i])) scheduled += 1
+    }
+    return {
+      total: total,
+      done: done,
+      open: total - done,
+      scheduled: scheduled,
+      pct: total === 0 ? 0 : Math.round((done / total) * 100)
+    }
+  }
+
+  function buildTimeline(scheduled, options) {
+    var opts = options || {}
+    var defaultDuration = Number(opts.defaultDurationMinutes) || 30
+    var nowMinutes = opts.nowMinutes === null || opts.nowMinutes === undefined ? null : Number(opts.nowMinutes)
+    var hours = Object.create(null)
+    for (var i = 0; i < scheduled.length; i++) {
+      var task = scheduled[i]
+      var from = Math.floor(task.startMinutes / 60) - 1
+      var to = Math.ceil(effectiveEnd(task, defaultDuration) / 60) + 1
+      for (var h = from; h <= to; h++) if (h >= 0 && h <= 23) hours[h] = true
+    }
+    if (nowMinutes !== null) {
+      var centre = Math.floor(nowMinutes / 60)
+      for (var k = centre - 1; k <= centre + 1; k++) if (k >= 0 && k <= 23) hours[k] = true
+    }
+    var list = Object.keys(hours).map(Number).sort(function (a, b) { return a - b })
+    if (list.length === 0) return { rows: [], now: null }
+
+    var byHour = Object.create(null)
+    for (var j = 0; j < scheduled.length; j++) {
+      var item = scheduled[j]
+      var hour = Math.floor(item.startMinutes / 60)
+      ;(byHour[hour] = byHour[hour] || []).push(item)
+    }
+
+    var rows = []
+    for (var idx = 0; idx < list.length; idx++) {
+      var current = list[idx]
+      if (idx > 0 && current - list[idx - 1] > 1) {
+        rows.push({ type: 'gap', from: list[idx - 1], to: current, label: list[idx - 1] + ':00' })
+      }
+      var row = { type: 'hour', hour: current, label: current + ':00', tasks: byHour[current] || [] }
+      if (nowMinutes !== null && Math.floor(nowMinutes / 60) === current) {
+        row.nowOffsetPct = ((nowMinutes % 60) / 60) * 100
+      }
+      rows.push(row)
+    }
+    var nowHour = nowMinutes === null ? null : Math.floor(nowMinutes / 60)
+    var now = nowHour !== null && hours[nowHour]
+      ? { hour: nowHour, offsetPct: ((nowMinutes % 60) / 60) * 100 }
+      : null
+    return { rows: rows, now: now }
+  }
+
+  function sortScheduled(tasks) {
+    return tasks.slice().sort(function (a, b) {
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes
+      return String(a.text || '').localeCompare(String(b.text || ''), 'zh-Hans-CN')
+    })
+  }
+
+  function dayTooltip(dateKey, tasks, todayKey, note) {
+    var parts = dateKey.split('-')
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+    var head = (dateKey === todayKey ? '今天 · ' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + WEEKDAY_FULL[mondayIndex(d)]
+    var bits = [head]
+    if (note) bits.push('已写 ' + formatWords(note.words))
+    else bits.push('还没写日记')
+    if (tasks.length > 0) {
+      var progress = dayProgress(tasks)
+      bits.push(progress.done + '/' + progress.total + ' 个任务完成' + (progress.scheduled > 0 ? '，' + progress.scheduled + ' 个已排时间' : ''))
+    }
+    return bits.join(' · ')
+  }
+
+  function writeErrorText(result) {
+    if (!result) return '写回失败'
+    if (result.error === 'stale') return '文件已被外部修改，已重新读取；请重试'
+    if (result.error === 'root-not-allowed') return '该文件不在允许的笔记库内，已拒绝写回'
+    if (result.error === 'outside-root') return '路径越界，已拒绝写回'
+    if (result.error === 'write-disabled') return '写回已在插件配置里关闭'
+    if (result.error === 'write-failed') return '写入失败（文件可能被 Obsidian 占用）'
+    if (result.error === 'verify-failed') return '写入校验未通过，文件可能未改动'
+    if (result.error === 'not-a-task') return '该行已经不是任务了，已重新读取'
+    if (result.error === 'bad-time') return '时间不合法（结束时间要晚于开始时间，格式 HH:mm）'
+    if (result.error === 'bad-date') return '日期不合法'
+    if (result.error === 'bad-text') return '内容不能为空，也不能带换行'
+    if (result.error === 'text-too-long') return '内容太长（上限 200 字）'
+    if (result.error === 'create-disabled') return '新建已在插件配置里关闭'
+    if (result.error === 'exists') return '已经存在了'
+    return '写回失败：' + String(result.error || 'unknown')
+  }
+  // #endregion
+
+  var TASKS = {
+    enabled: true,
+    byDate: {},
+    notes: {},
+    undated: 0,
+    scanned: null,
+    loaded: false,
+    note: '',
+    error: null,
+    root: null,
+    caps: { write: false, create: false, appendDoneDate: true, schedule: false, add: false },
+    planner: { defaultDurationMinutes: 30, showNow: true, startHour: 6 },
+    calendar: { wordsPerDot: 250, maxNoteDots: 2 },
+    busy: false,
+    notice: ''
+  }
+
+  function loadTasks(refresh) {
+    var url = tasksUrl(refresh)
+    if (!url) { TASKS.enabled = false; TASKS.byDate = {}; renderTasks(); render(state.offset || 0); return }
+    var request
+    try {
+      request = fetch(url, { headers: { accept: 'application/json' } })
+    } catch (error) {
+      finishTasks(null, error)
+      return
+    }
+    request.then(function (response) {
+      return response.ok ? response.json() : null
+    }).then(function (data) {
+      finishTasks(data, null)
+    }).catch(function (error) {
+      finishTasks(null, error)
+    })
+  }
+
+  function finishTasks(data, error) {
+    if (!data || data.ok === false) {
+      TASKS.byDate = {}
+      TASKS.notes = {}
+      TASKS.undated = 0
+      TASKS.scanned = null
+      TASKS.note = ''
+      TASKS.root = null
+      TASKS.caps = { write: false, create: false, appendDoneDate: true, schedule: false, add: false }
+      TASKS.error = error ? 'unreachable' : ((data && data.error) || 'unavailable')
+    } else {
+      TASKS.byDate = data.buckets || {}
+      TASKS.notes = data.notes || {}
+      TASKS.undated = (data.counts && data.counts.undated) || 0
+      TASKS.scanned = data.scanned || null
+      TASKS.root = data.root || null
+      TASKS.caps = data.capabilities || { write: false, create: false, appendDoneDate: true, schedule: false, add: false }
+      if (data.dayPlanner) TASKS.planner = data.dayPlanner
+      if (data.calendar) TASKS.calendar = data.calendar
+      TASKS.error = null
+      var notes = []
+      if (TASKS.undated > 0) notes.push('另有 ' + TASKS.undated + ' 个未排期任务（没有 📅/⏳/🛫 日期）')
+      if (TASKS.scanned && TASKS.scanned.truncated) notes.push('文件较多，仅扫描了前 ' + TASKS.scanned.files + ' 个 Markdown')
+      TASKS.note = notes.join(' · ')
+    }
+    TASKS.loaded = true
+    renderTasks()
+    render(0)
+  }
+
+  function postWrite(path, payload) {
+    return fetch(path + rootQuery(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dsh-calendar': 'write' },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      return response.json().catch(function () { return null })
+    })
+  }
+
+  function toggleTask(task) {
+    if (!TASKS.caps.write || TASKS.busy) return
+    var previous = { state: task.state, done: task.done }
+    var target = nextState(task)
+    task.state = target
+    if (target === 'done' && TASKS.caps.appendDoneDate) task.done = keyOf(today)
+    if (target !== 'done') task.done = null
+    TASKS.busy = true
+    TASKS.notice = ''
+    render(0)
+
+    var url = '/dsh-calendar/tasks/toggle'
+    var payload = { file: task.file, line: task.line, done: target === 'done', expect: task.raw, date: keyOf(today) }
+    var request
+    try {
+      request = fetch(url + rootQuery(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dsh-calendar': 'write' },
+        body: JSON.stringify(payload)
+      })
+    } catch (error) {
+      finishToggle(task, previous, null, error)
+      return
+    }
+    request.then(function (response) {
+      return response.json().catch(function () { return null })
+    }).then(function (result) {
+      finishToggle(task, previous, result, null)
+    }).catch(function (error) {
+      finishToggle(task, previous, null, error)
+    })
+  }
+
+  function finishToggle(task, previous, result, error) {
+    TASKS.busy = false
+    if (!result || result.ok !== true) {
+      task.state = previous.state
+      task.done = previous.done
+      TASKS.notice = error ? '写回失败：连不上 host' : writeErrorText(result)
+    } else {
+      if (typeof result.after === 'string') task.raw = result.after
+      TASKS.notice = ''
+    }
+    loadTasks(true)
+  }
+
+  function beginEdit(task, textEl, row) {
+    if (!TASKS.caps.write || TASKS.busy) return
+    if (row.querySelector('.cal-task-input')) return
+
+    var input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'cal-task-input'
+    input.value = task.text || ''
+    input.maxLength = 500
+    input.setAttribute('aria-label', '编辑任务内容')
+    textEl.hidden = true
+    row.insertBefore(input, textEl.nextSibling)
+    input.focus()
+    input.select()
+
+    var settled = false
+    function cancel() {
+      settled = true
+      if (input.parentNode) input.parentNode.removeChild(input)
+      textEl.hidden = false
+    }
+    function commit() {
+      if (settled) return
+      settled = true
+      var next = input.value.replace(/\s+/g, ' ').trim()
+      if (input.parentNode) input.parentNode.removeChild(input)
+      textEl.hidden = false
+      if (next === '' || next === (task.text || '')) return
+      var previous = task.text
+      task.text = next
+      TASKS.busy = true
+      TASKS.notice = ''
+      render(0)
+      var payload = { file: task.file, line: task.line, expect: task.raw, text: next }
+      postWrite('/dsh-calendar/tasks/update', payload).then(function (result) {
+        TASKS.busy = false
+        if (!result || result.ok !== true) {
+          task.text = previous
+          TASKS.notice = writeErrorText(result)
+        } else if (typeof result.after === 'string') {
+          task.raw = result.after
+          TASKS.notice = ''
+        }
+        loadTasks(true)
+      }).catch(function () {
+        TASKS.busy = false
+        task.text = previous
+        TASKS.notice = '写回失败：连不上 host'
+        render(0)
+      })
+    }
+
+    input.addEventListener('keydown', function (event) {
+      event.stopPropagation()
+      if (event.key === 'Enter') { event.preventDefault(); commit() }
+      else if (event.key === 'Escape') { event.preventDefault(); cancel() }
+    })
+    input.addEventListener('blur', commit)
+  }
+
+  function spawnRipple(host, clientX, clientY) {
+    var rect = host.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    var ripple = document.createElement('span')
+    ripple.className = 'cal-ripple'
+    ripple.style.left = (clientX - rect.left) + 'px'
+    ripple.style.top = (clientY - rect.top) + 'px'
+    ripple.style.setProperty('--cal-ripple-scale', String(Math.max(rect.width, rect.height) / 8))
+    host.appendChild(ripple)
+    var remove = function () { if (ripple.parentNode) ripple.parentNode.removeChild(ripple) }
+    ripple.addEventListener('animationend', remove)
+    setTimeout(remove, 900)
+  }
+
+  function beginTimeEdit(task, chip, row) {
+    if (!TASKS.caps.schedule || TASKS.busy) return
+    if (row.querySelector('.cal-time-editor')) return
+
+    var editor = document.createElement('span')
+    editor.className = 'cal-time-editor'
+    var start = document.createElement('input')
+    start.type = 'time'
+    start.step = '600'
+    start.className = 'cal-time-input'
+    start.value = task.startTime || ''
+    start.setAttribute('aria-label', '开始时间')
+    var dash = document.createElement('span')
+    dash.className = 'cal-time-btn is-muted'
+    dash.textContent = '–'
+    var end = document.createElement('input')
+    end.type = 'time'
+    end.step = '600'
+    end.className = 'cal-time-input'
+    end.value = task.endTime || ''
+    end.setAttribute('aria-label', '结束时间（可留空）')
+    var save = document.createElement('button')
+    save.type = 'button'
+    save.className = 'cal-time-btn cal-rippleable'
+    save.textContent = '✓'
+    save.title = '保存时间'
+    var clear = document.createElement('button')
+    clear.type = 'button'
+    clear.className = 'cal-time-btn is-muted cal-rippleable'
+    clear.textContent = '清除'
+    clear.title = '移除时间（这条回到"未安排"）'
+    var cancel = document.createElement('button')
+    cancel.type = 'button'
+    cancel.className = 'cal-time-btn is-muted cal-rippleable'
+    cancel.textContent = '✕'
+    cancel.title = '取消'
+
+    editor.appendChild(start)
+    editor.appendChild(dash)
+    editor.appendChild(end)
+    editor.appendChild(save)
+    editor.appendChild(clear)
+    editor.appendChild(cancel)
+    chip.hidden = true
+    row.insertBefore(editor, chip)
+
+    var settled = false
+    function close() {
+      settled = true
+      if (editor.parentNode) editor.parentNode.removeChild(editor)
+      chip.hidden = false
+    }
+    function commit(clearIt) {
+      if (settled) return
+      var from = start.value || ''
+      var to = end.value || ''
+      if (!clearIt) {
+        if (from === '' && to !== '') { from = to; to = '' }
+        if (from === '') {
+          TASKS.notice = '请先选开始时间，或用「清除」把这条变回未安排'
+          close()
+          renderTasks()
+          return
+        }
+      }
+      close()
+      saveTaskTime(task, clearIt ? null : from, clearIt ? null : (to === '' ? null : to))
+    }
+
+    save.addEventListener('click', function () { commit(false) })
+    clear.addEventListener('click', function () { commit(true) })
+    cancel.addEventListener('click', function () { close() })
+    editor.addEventListener('keydown', function (event) {
+      event.stopPropagation()
+      if (event.key === 'Enter') { event.preventDefault(); commit(false) }
+      else if (event.key === 'Escape') { event.preventDefault(); close() }
+    })
+    start.focus()
+  }
+
+  function saveTaskTime(task, start, end) {
+    var previous = {
+      startTime: task.startTime,
+      endTime: task.endTime,
+      startMinutes: task.startMinutes,
+      endMinutes: task.endMinutes
+    }
+    task.startTime = start
+    task.endTime = end
+    task.startMinutes = start === null ? null : clockMinutes(start)
+    task.endMinutes = end === null ? null : clockMinutes(end)
+    TASKS.busy = true
+    TASKS.notice = ''
+    render(0)
+    postWrite('/dsh-calendar/tasks/schedule', {
+      file: task.file,
+      line: task.line,
+      expect: task.raw,
+      start: start,
+      end: end
+    }).then(function (result) {
+      TASKS.busy = false
+      if (!result || result.ok !== true) {
+        task.startTime = previous.startTime
+        task.endTime = previous.endTime
+        task.startMinutes = previous.startMinutes
+        task.endMinutes = previous.endMinutes
+        TASKS.notice = writeErrorText(result)
+      } else if (typeof result.after === 'string') {
+        task.raw = result.after
+        TASKS.notice = ''
+      }
+      loadTasks(true)
+    }).catch(function () {
+      TASKS.busy = false
+      task.startTime = previous.startTime
+      task.endTime = previous.endTime
+      task.startMinutes = previous.startMinutes
+      task.endMinutes = previous.endMinutes
+      TASKS.notice = '写回失败：连不上 host'
+      render(0)
+    })
+  }
+
+  function createNoteForSelected() {
+    if (!TASKS.caps.create || TASKS.busy) return
+    TASKS.busy = true
+    TASKS.notice = ''
+    renderTasks()
+    var url = '/dsh-calendar/notes/create' + rootQuery()
+    var request
+    try {
+      request = fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dsh-calendar': 'write' },
+        body: JSON.stringify({ date: state.selected })
+      })
+    } catch (error) {
+      TASKS.busy = false
+      TASKS.notice = '新建失败：连不上 host'
+      renderTasks()
+      return
+    }
+    request.then(function (response) {
+      return response.json().catch(function () { return null })
+    }).then(function (result) {
+      TASKS.busy = false
+      if (!result || result.ok !== true) {
+        TASKS.notice = result && result.error === 'exists' ? '这一天的日记已存在，已重新读取' : '新建失败：' + String((result && result.error) || 'unknown')
+      } else {
+        TASKS.notice = ''
+      }
+      loadTasks(true)
+    }).catch(function () {
+      TASKS.busy = false
+      TASKS.notice = '新建失败：连不上 host'
+      renderTasks()
+    })
+  }
+
+  function renderTasks() {
+    if (!TASKS.enabled || !TASKS.loaded) { els.tasks.hidden = true; return }
+    els.tasks.hidden = false
+
+    var todayKey = keyOf(today)
+    var all = sortDayTasks(TASKS.byDate[state.selected] || [], todayKey)
+    var scheduled = sortScheduled(all.filter(hasTime))
+    var unscheduled = all.filter(function (task) { return !hasTime(task) })
+    var progress = dayProgress(all)
+
+    els.tasksTitle.textContent = formatDayTitle(state.selected, all.length, todayKey)
+    els.tasksRefresh.hidden = TASKS.error !== null
+
+    els.progress.hidden = all.length === 0
+    els.progressFill.style.width = progress.pct + '%'
+    els.progressText.textContent = progress.done + '/' + progress.total + ' 完成' +
+      (progress.scheduled > 0 ? ' · ' + progress.scheduled + ' 个已排时间' : '')
+
+    renderTimeline(scheduled, todayKey)
+
+    els.taskList.textContent = ''
+    if (unscheduled.length > 0 && scheduled.length > 0) {
+      var groupTitle = document.createElement('li')
+      groupTitle.className = 'cal-group-title'
+      groupTitle.textContent = '未安排'
+      els.taskList.appendChild(groupTitle)
+    }
+    for (var i = 0; i < unscheduled.length; i++) els.taskList.appendChild(taskRow(unscheduled[i], todayKey, false))
+
+    els.tasksEmpty.hidden = all.length > 0
+    if (all.length === 0) {
+      els.tasksEmpty.textContent = TASKS.error === 'unreachable'
+        ? '（未连接 DSH：打开单文件页时读不到笔记库）'
+        : '这一天没有任务'
+    }
+
+    els.add.hidden = !TASKS.caps.add || TASKS.error !== null
+    els.tasksNotice.hidden = TASKS.notice === ''
+    els.tasksNotice.textContent = TASKS.notice
+
+    renderNote()
+
+    els.tasksNote.hidden = TASKS.note === ''
+    els.tasksNote.textContent = TASKS.note
+  }
+
+  function renderTimeline(scheduled, todayKey) {
+    var planner = TASKS.planner || {}
+    var isToday = state.selected === todayKey
+    var now = isToday && planner.showNow !== false ? (new Date().getHours() * 60 + new Date().getMinutes()) : null
+    var built = buildTimeline(scheduled, {
+      nowMinutes: now,
+      defaultDurationMinutes: planner.defaultDurationMinutes
+    })
+
+    els.timeline.hidden = built.rows.length === 0
+    els.timeline.textContent = ''
+    for (var i = 0; i < built.rows.length; i++) {
+      var row = built.rows[i]
+      if (row.type === 'gap') {
+        var gap = document.createElement('div')
+        gap.className = 'cal-gap'
+        var gapLabel = document.createElement('span')
+        gapLabel.className = 'cal-gap-label'
+        gapLabel.textContent = row.label
+        var gapText = document.createElement('span')
+        gapText.className = 'cal-gap-text'
+        gapText.textContent = '⋯ ' + (row.to - row.from) + ' 小时无安排'
+        gap.appendChild(gapLabel)
+        gap.appendChild(gapText)
+        els.timeline.appendChild(gap)
+        continue
+      }
+
+      var hour = document.createElement('div')
+      hour.className = 'cal-hour' + (row.tasks.length === 0 ? ' is-empty' : '')
+      var label = document.createElement('span')
+      label.className = 'cal-hour-label'
+      label.textContent = row.label
+      var body = document.createElement('div')
+      body.className = 'cal-hour-body'
+      for (var j = 0; j < row.tasks.length; j++) body.appendChild(taskRow(row.tasks[j], todayKey, true))
+      hour.appendChild(label)
+      hour.appendChild(body)
+
+      if (row.nowOffsetPct !== undefined) {
+        var needle = document.createElement('div')
+        needle.className = 'cal-now'
+        needle.style.top = 'calc(3px + (100% - 8px) * ' + (row.nowOffsetPct / 100).toFixed(3) + ')'
+        var nowLabel = document.createElement('span')
+        nowLabel.className = 'cal-now-label'
+        nowLabel.textContent = '现在'
+        needle.appendChild(nowLabel)
+        hour.appendChild(needle)
+      }
+      els.timeline.appendChild(hour)
+    }
+  }
+
+  function renderNote() {
+    var note = TASKS.notes ? TASKS.notes[state.selected] : null
+    var summary = noteSummary(note)
+
+    els.note.hidden = summary === null
+    els.noteNew.hidden = summary !== null || !TASKS.caps.create || TASKS.error !== null
+    if (summary === null) return
+
+    els.noteTitle.textContent = summary.title
+    els.noteMeta.textContent = summary.meta
+    elSetText(els.noteText, note.excerpt === '' ? '（这篇日记还没有正文）' : note.excerpt)
+    els.note.open = false
+  }
+
+  function elSetText(element, value) {
+    element.textContent = value === undefined || value === null ? '' : String(value)
+  }
+
+  function taskRow(task, todayKey, withTime) {
+    var li = document.createElement('li')
+    li.className = 'cal-task is-' + taskKind(task, todayKey)
+    li.dataset.file = task.file
+    li.dataset.line = String(task.line)
+
+    if (withTime && hasTime(task)) {
+      var chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = 'cal-time-chip cal-rippleable'
+      chip.textContent = timeChipLabel(task)
+      chip.title = TASKS.caps.schedule ? '点击修改时间' : '时间'
+      if (TASKS.caps.schedule) {
+        chip.addEventListener('click', function (event) {
+          event.stopPropagation()
+          beginTimeEdit(task, chip, li)
+        })
+      } else {
+        chip.disabled = true
+      }
+      li.appendChild(chip)
+    }
+
+    var glyph = document.createElement('button')
+    glyph.type = 'button'
+    glyph.className = 'cal-task-state cal-rippleable'
+    glyph.textContent = STATE_GLYPH[task.state] || '○'
+    if (TASKS.caps.write) {
+      glyph.title = task.state === 'done' ? '标记为未完成（写回笔记）' : '标记为完成（写回笔记）'
+      glyph.setAttribute('aria-label', glyph.title)
+      glyph.addEventListener('click', function (event) {
+        event.stopPropagation()
+        toggleTask(task)
+      })
+    } else {
+      glyph.disabled = true
+    }
+    li.appendChild(glyph)
+
+    var text = document.createElement('span')
+    text.className = 'cal-task-text'
+    var source = String(task.text || '(无标题)')
+    var at = 0
+    var pattern = /#[^\s#]+/g
+    var match
+    while ((match = pattern.exec(source)) !== null) {
+      if (match.index > at) text.appendChild(document.createTextNode(source.slice(at, match.index)))
+      var tag = document.createElement('span')
+      tag.className = 'cal-task-tag'
+      tag.textContent = match[0]
+      text.appendChild(tag)
+      at = match.index + match[0].length
+    }
+    if (at < source.length) text.appendChild(document.createTextNode(source.slice(at)))
+    li.appendChild(text)
+    if (TASKS.caps.write) {
+      text.classList.add('is-editable')
+      text.title = '点击可修改内容'
+      text.addEventListener('click', function (event) {
+        event.stopPropagation()
+        beginEdit(task, text, li)
+      })
+    }
+
+    var meta = taskMetaOf(task, todayKey)
+    if (meta.length > 0) {
+      var right = document.createElement('span')
+      right.className = 'cal-task-meta'
+      right.textContent = meta.join(' ')
+      li.appendChild(right)
+    }
+    return li
+  }
+
+  function fillDots(container, tasks, todayKey, note) {
+    var noteDots = noteDotCount(note, TASKS.calendar && TASKS.calendar.wordsPerDot, TASKS.calendar && TASKS.calendar.maxNoteDots)
+    for (var n = 0; n < noteDots; n++) {
+      var noteDot = document.createElement('span')
+      noteDot.className = 'cal-dot is-note'
+      container.appendChild(noteDot)
+    }
+    var dots = classifyDay(tasks, todayKey).dots
+    for (var i = 0; i < dots.length; i++) {
+      var dot = document.createElement('span')
+      dot.className = 'cal-dot is-' + dots[i]
+      container.appendChild(dot)
+    }
+  }
+
+  function render(direction) {
+    var y = state.year
+    var m = state.month
+    var todayKey = keyOf(today)
+
+    els.title.textContent = y + '年' + (m + 1) + '月'
+
+    var lead = mondayIndex(new Date(y, m, 1))
+    var cursor = new Date(y, m, 1 - lead)
+
+    var frag = document.createDocumentFragment()
+    for (var i = 0; i < CELLS; i++) {
+      var d = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + i)
+      var key = keyOf(d)
+      var cell = document.createElement('button')
+      cell.type = 'button'
+      cell.className = 'cal-day cal-rippleable'
+      cell.dataset.date = key
+      if (d.getMonth() !== m) cell.classList.add('is-outside')
+      if (key === todayKey) cell.classList.add('is-today')
+      if (key === state.selected) cell.classList.add('is-selected')
+      cell.setAttribute('aria-label',
+        d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + WEEKDAY_FULL[mondayIndex(d)])
+      cell.setAttribute('aria-pressed', key === state.selected ? 'true' : 'false')
+      if (key === todayKey) cell.setAttribute('aria-current', 'date')
+
+      var num = document.createElement('span')
+      num.className = 'cal-day-num'
+      num.textContent = String(d.getDate())
+      cell.appendChild(num)
+
+      var dayTasks = TASKS.byDate[key] || []
+      var dayNote = TASKS.notes[key] || null
+      var dots = document.createElement('span')
+      dots.className = 'cal-dots'
+      fillDots(dots, dayTasks, todayKey, dayNote)
+      cell.appendChild(dots)
+      cell.title = dayTooltip(key, dayTasks, todayKey, dayNote)
+
+      frag.appendChild(cell)
+    }
+
+    els.grid.textContent = ''
+    els.grid.appendChild(frag)
+
+    renderSubtitle()
+    renderTodayButton()
+    renderTasks()
+    if (direction) animate(direction)
+  }
+
+  function renderSubtitle() {
+    var parts = state.selected.split('-')
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+    var label = (d.getFullYear() === today.getFullYear() ? '' : d.getFullYear() + '年') +
+      (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + WEEKDAY_FULL[mondayIndex(d)]
+    els.subtitle.textContent = state.selected === keyOf(today) ? '今天 · ' + label : label
+  }
+
+  function renderTodayButton() {
+    var onCurrentMonth = state.year === today.getFullYear() && state.month === today.getMonth()
+    els.todayBtn.hidden = onCurrentMonth && state.selected === keyOf(today)
+  }
+
+  function animate(direction) {
+    var grid = els.grid
+    grid.classList.remove('is-anim', 'is-anim-next', 'is-anim-prev')
+    void grid.offsetWidth
+    grid.classList.add('is-anim', direction > 0 ? 'is-anim-next' : 'is-anim-prev')
+  }
+
+  function shiftMonth(delta) {
+    var d = new Date(state.year, state.month + delta, 1)
+    state.year = d.getFullYear()
+    state.month = d.getMonth()
+    render(delta)
+  }
+
+  function selectDate(key) {
+    if (!key || key === state.selected) return
+    state.selected = key
+    var parts = key.split('-')
+    state.year = Number(parts[0])
+    state.month = Number(parts[1]) - 1
+    render(0)
+  }
+
+  function goToday() {
+    today = startOfDay(new Date())
+    state.year = today.getFullYear()
+    state.month = today.getMonth()
+    state.selected = keyOf(today)
+    render(1)
+  }
+
+  els.weekdays.appendChild((function () {
+    var frag = document.createDocumentFragment()
+    for (var i = 0; i < 7; i++) {
+      var w = document.createElement('div')
+      w.className = 'cal-weekday'
+      w.textContent = WEEKDAY_SHORT[i]
+      frag.appendChild(w)
+    }
+    return frag
+  })())
+
+  els.prev.addEventListener('click', function () { shiftMonth(-1) })
+  els.next.addEventListener('click', function () { shiftMonth(1) })
+  els.todayBtn.addEventListener('click', goToday)
+  els.tasksRefresh.addEventListener('click', function () { loadTasks(true) })
+  els.noteNew.addEventListener('click', createNoteForSelected)
+
+  els.add.addEventListener('submit', function (event) {
+    event.preventDefault()
+    if (!TASKS.caps.add || TASKS.busy) return
+    var text = els.addText.value.replace(/\s+/g, ' ').trim()
+    if (text === '') { els.addText.focus(); return }
+    var start = els.addTime.value || null
+    TASKS.busy = true
+    TASKS.notice = ''
+    renderTasks()
+    postWrite('/dsh-calendar/tasks/add', { date: state.selected, text: text, start: start }).then(function (result) {
+      TASKS.busy = false
+      if (!result || result.ok !== true) {
+        TASKS.notice = writeErrorText(result)
+      } else {
+        els.addText.value = ''
+        els.addTime.value = ''
+        TASKS.notice = ''
+      }
+      loadTasks(true)
+    }).catch(function () {
+      TASKS.busy = false
+      TASKS.notice = '新建失败：连不上 host'
+      renderTasks()
+    })
+  })
+
+  document.addEventListener('pointerdown', function (event) {
+    var target = event.target
+    var host = target && target.closest ? target.closest('.cal-rippleable') : null
+    if (host) spawnRipple(host, event.clientX, event.clientY)
+  }, true)
+
+  setInterval(function () {
+    if (document.visibilityState !== 'visible') return
+    if (!TASKS.enabled || !TASKS.loaded || TASKS.busy) return
+    loadTasks(false)
+  }, 15000)
+
+  var drag = null
+  var suppressClick = false
+
+  els.grid.addEventListener('click', function (e) {
+    if (suppressClick) { suppressClick = false; e.preventDefault(); return }
+    var cell = e.target && e.target.closest ? e.target.closest('.cal-day') : null
+    if (cell) selectDate(cell.dataset.date)
+  })
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    var t = e.target
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return
+    if (e.key === 'ArrowLeft') { shiftMonth(-1); e.preventDefault() }
+    else if (e.key === 'ArrowRight') { shiftMonth(1); e.preventDefault() }
+  })
+
+  els.grid.addEventListener('pointerdown', function (e) {
+    suppressClick = false
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, moved: false }
+  })
+
+  els.grid.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return
+    var dx = e.clientX - drag.x
+    var dy = e.clientY - drag.y
+    if (!drag.moved) {
+      if (Math.abs(dx) < SWIPE_SLOP || Math.abs(dx) <= Math.abs(dy)) return
+      drag.moved = true
+      els.grid.classList.add('is-dragging')
+      try { els.grid.setPointerCapture(drag.id) } catch (err) { /* 捕获失败不致命 */ }
+    }
+    drag.dx = dx
+    els.grid.style.transform = 'translateX(' + (dx * 0.35).toFixed(1) + 'px)'
+    e.preventDefault()
+  })
+
+  function endDrag(e, commit) {
+    if (!drag || (e && e.pointerId !== drag.id)) return
+    var dx = drag.dx
+    var moved = drag.moved
+    drag = null
+    els.grid.classList.remove('is-dragging')
+    els.grid.style.transform = ''
+    if (!moved) return
+    suppressClick = true
+    setTimeout(function () { suppressClick = false }, 0)
+    if (!commit) return
+    if (dx <= -SWIPE_MIN) shiftMonth(1)
+    else if (dx >= SWIPE_MIN) shiftMonth(-1)
+    else animate(dx < 0 ? 1 : -1)
+  }
+
+  els.grid.addEventListener('pointerup', function (e) { endDrag(e, true) })
+  els.grid.addEventListener('pointercancel', function (e) { endDrag(e, false) })
+  els.grid.addEventListener('lostpointercapture', function (e) { endDrag(e, false) })
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return
+    var now = startOfDay(new Date())
+    if (keyOf(now) === keyOf(today)) return
+    var wasToday = state.selected === keyOf(today)
+    today = now
+    if (wasToday) state.selected = keyOf(today)
+    render(0)
+  })
+
+  render(0)
+  loadTasks(false)
+
+  window.DSHCalendar = {
+    goToday: goToday,
+    shiftMonth: shiftMonth,
+    reloadTasks: loadTasks,
+    setTheme: function (theme) {
+      document.documentElement.dataset.calTheme =
+        (theme === 'light' || theme === 'dark') ? theme : 'auto'
+    },
+    el: els.grid
+  }
+})()
+</script>
+</body>
+</html>

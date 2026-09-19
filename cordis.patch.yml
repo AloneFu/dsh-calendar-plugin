@@ -1,0 +1,26 @@
+# dsh-calendar bundle patch
+#
+# 这个文件是 package.json 里 `dsh.bundle.patch` 指向的挂载层：
+#
+#   dsh plugin --profile web add <本包目录或 tgz>
+#
+# 走官方 CLI 通道安装时，命令会把本包追加进 profile 的 `dsh.profile.bundles`，
+# 于是 profile 启动就会合并这一条 patch（把插件行 insert 进 loader 树），
+# 不需要手改任何 profile 文件。
+#
+# 已经用注入器（dev_inject_plugin / registry.json）挂载过时不要再走这条通道，
+# 否则同一会话里会有两条 enabled 的同名 entry，出现双份侧栏 tab。
+#
+# 需要覆盖配置时给插入行加 config（本插件目前没有可配项，仅作示例）：
+#
+#   - insert:
+#       - id: dsh-calendar
+#         name: 'dsh-calendar'
+#         config: {}
+#
+# 重复挂载守卫：若已有别的 id 挂载了同名包（例如某个聚合 bundle 自己带了日历），
+# 本条自动退让，避免 "duplicate loader entry id" / 双份注册。
+- insert:
+    - id: dsh-calendar
+      name: 'dsh-calendar'
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-calendar' && e.options.id !== 'dsh-calendar')"
