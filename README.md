@@ -1,5 +1,7 @@
 # dsh-calendar · 把 Obsidian 内联进 DSH
 
+[![CI](https://github.com/AloneFu/dsh-calendar-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/AloneFu/dsh-calendar-plugin/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 在 DeepSeek Harness 的**右侧栏**里打开你的 Obsidian 日记：月历、当天时间轴（Day Planner 风格）、
 待办列表与日记正文，勾选完成 / 改内容 / 改时间都会**写回你的 Markdown 原文件**。
 
