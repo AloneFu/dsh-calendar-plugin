@@ -63,8 +63,12 @@ if (!dayMatch) {
   process.exit(1)
 }
 const embedDayHeight = Number(dayMatch[1])
-// 表头栈：顶栏 44 + 大标题 40 + 选中说明 24 + 星期表头 26 + 网格上边距 2 + 卡片底部内边距 18
-const HEADER_STACK = 154
+/* 表头栈：卡片上内边距 14 + .cal-head 上内边距 2 + 控件行 30 + 大标题外边距 10 + 大标题 30
+ *        + 说明外边距 6 + 说明 18 + 星期行外边距 18 + 星期行 21 + 网格上边距 2 + 卡片下内边距 18
+ * = 169。这里取三套皮肤（y2k / win95 / cel）在浏览器里的实测**最坏值 171**（cel：星期行更高）。
+ * 注意：旧值 154 是错的（把"星期表头"整段记成 26，实际是 18+21=39，还漏了 head 的 2px 上内边距），
+ * 所以这个数必须实测，别照着上一版抄。 */
+const HEADER_STACK = 171
 const requiredHeight = HEADER_STACK + 6 * embedDayHeight
 console.log(`（页面 embed 实测需求：表头栈 ${HEADER_STACK} + 6 × ${embedDayHeight} = ${requiredHeight}px）`)
 check(`兜底高度 ${MIN_FRAME_HEIGHT} >= 页面实际所需 ${requiredHeight}`, MIN_FRAME_HEIGHT >= requiredHeight, true)

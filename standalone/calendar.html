@@ -3,65 +3,98 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
 <title>日历</title>
+<script>
+/* 皮肤在 head 里就定死：属性先落地（否则会闪一下默认皮肤），字体按皮肤只加载一套 */
+(function(){
+var FONTS={y2k:'family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800',win95:'family=VT323',cel:'family=Baloo+2:wght@800'}
+var m=/[?&]skin=([^&]*)/.exec(location.search),s=m?m[1].toLowerCase():''
+if(!FONTS[s]){try{s=localStorage.getItem('cal-skin')||''}catch(e){}}
+if(!FONTS[s])s='y2k'
+var d=document.documentElement;d.dataset.calSkin=s
+var no=/[?&]font=0/.test(location.search)
+/* 切皮肤时换 link 而不是叠加，避免同时拉两套字 */
+window.__calFont=function(k){
+var o=document.getElementById('calFontLink');if(o)o.remove()
+if(no||!FONTS[k])return
+document.head.insertAdjacentHTML('beforeend','<link id=calFontLink rel=stylesheet href="https://fonts.googleapis.com/css2?'+FONTS[k]+'&display=swap">')
+}
+if(!no){document.head.insertAdjacentHTML('beforeend','<link rel=preconnect href=https://fonts.gstatic.com crossorigin>');window.__calFont(s)}
+})()
+</script>
 <!--
-  简约日历 · 单文件零依赖版（DSH 插件 dsh-calendar 的唯一真源）
-  - 无外部请求：不加载字体、图片、脚本；图标为内联 SVG；日期计算只用原生 Date
-  - 视觉：iOS 日历语言（大标题 / 七列网格 / 圆角卡片 / 今日高亮 / 无边框无阴影）
-  - 配色：默认跟随系统 prefers-color-scheme；?theme=light|dark 可强制；?embed=1 供面板内嵌
-  - 交互：左右箭头 + 指针滑动手势 + 键盘 ←→ 切月；点击某天选中；默认选中今天；周起始日 = 周一
+  简约日历 · 单文件版（DSH dsh-calendar 唯一真源）
+  三套皮肤：?skin=y2k（默认，铬标题+磨砂卡）| win95（窗口/立体边/16 色）| cel（赛璐璐/硬阴影）
+  字体按皮肤外链一套（y2k: Fredoka+Nunito，win95: VT323，cel: Baloo 2）
+  ?theme=light|dark 强制 · ?embed=1 内嵌 · ?font=0 关外链 · 页内按钮循环切皮肤
 -->
 <style>
-  /* ── 设计令牌：挂在 html 上，页面底与卡片都能读到；深色覆盖，embed 时宿主可覆盖 ── */
+  /* 令牌：挂 html 上；深色与 embed 各自覆盖 */
   html {
-    --cal-page: #f2f2f7;          /* 页面底（iOS systemGroupedBackground） */
-    --cal-page-2: #e7e7ef;        /* 页面底渐变末端 */
-    --cal-card: #ffffff;          /* 圆角卡片 */
-    --cal-card-2: #fafafd;        /* 卡片渐变末端 */
-    --cal-ink: #000000;           /* 主文字 */
-    --cal-ink-2: rgba(60, 60, 67, 0.62);
-    --cal-ink-3: rgba(60, 60, 67, 0.30);
-    --cal-hover: rgba(120, 120, 128, 0.14);
-    --cal-accent: #007aff;        /* iOS 蓝：选中态圆形填充 */
+    color-scheme: light;
+    --cal-page: #ffc4e4; /* 泡泡糖粉 */
+    --cal-page-3: #c3a8ff; /* 丁香紫：中停 */
+    --cal-page-2: #a5cbff; /* 婴儿蓝 */
+    --cal-card: rgba(255, 255, 255, 0.62);
+    --cal-card-2: rgba(255, 255, 255, 0.34);
+    --cal-ink: #2b1b3d; /* 深梅 */
+    --cal-ink-2: rgba(64, 40, 88, 0.66);
+    --cal-ink-3: rgba(64, 40, 88, 0.34);
+    --cal-hover: rgba(255, 255, 255, 0.55);
+    --cal-accent: #ff4fd8; /* 品红 */
+    --cal-accent-2: #7b5cff; /* 靛紫 */
     --cal-accent-ink: #ffffff;
-    --cal-today: #ff3b30;         /* iOS 红：今天（未被选中时） */
-    --cal-warn: #ff9500;          /* iOS 橙：高优先级任务点 */
-    --cal-wash: rgba(0, 122, 255, 0.055);   /* 内嵌面板时顶部的柔和渐变 */
-    --cal-ripple: rgba(0, 122, 255, 0.22);  /* 点击波纹 */
-    --cal-outside: 0.28;          /* 非当月日期的弱化透明度 */
-    --cal-radius: 22px;
+    --cal-today: #ff2f86; /* 热粉 */
+    --cal-warn: #ff9f1c;
+    --cal-wash: rgba(255, 143, 214, 0.16);
+    --cal-ripple: rgba(123, 92, 255, 0.30);
+    --cal-outside: 0.28;
+    --cal-radius: 26px;
+    --cal-chrome: linear-gradient(96deg, #241634 0%, #7b5cff 16%, #ffe9fb 32%, #ff4fd8 48%, #6b3fd4 70%, #2b1b3d 100%);
+    --cal-gloss: rgba(255, 255, 255, 0.85);
   }
   html[data-cal-theme='dark'] {
-    --cal-page: #000000;
-    --cal-page-2: #121216;
-    --cal-card: #1c1c1e;
-    --cal-card-2: #141416;
-    --cal-ink: #ffffff;
-    --cal-ink-2: rgba(235, 235, 245, 0.60);
-    --cal-ink-3: rgba(235, 235, 245, 0.30);
-    --cal-hover: rgba(120, 120, 128, 0.32);
-    --cal-today: #ff453a;
-    --cal-warn: #ff9f0a;
-    --cal-wash: rgba(10, 132, 255, 0.10);
-    --cal-ripple: rgba(10, 132, 255, 0.30);
-    --cal-outside: 0.32;
+    color-scheme: dark;
+    --cal-page: #17141d;
+    --cal-page-3: #1d1826;
+    --cal-page-2: #241d2e;
+    --cal-card: #221e2b;
+    --cal-card-2: #1b1724;
+    --cal-ink: #f3eefa;
+    --cal-ink-2: rgba(240, 232, 250, 0.62);
+    --cal-ink-3: rgba(240, 232, 250, 0.32);
+    --cal-hover: rgba(255, 255, 255, 0.10);
+    --cal-accent: #ff6ad5;
+    --cal-accent-2: #9b7cff;
+    --cal-today: #ff5c8a;
+    --cal-warn: #ffb04d;
+    --cal-wash: rgba(255, 106, 213, 0.10);
+    --cal-ripple: rgba(255, 106, 213, 0.30);
+    --cal-outside: 0.32; /* 深色不上铬，同套 clip 走纯色 */
+    --cal-chrome: linear-gradient(var(--cal-ink), var(--cal-ink));
+    --cal-gloss: rgba(255, 255, 255, 0.14);
   }
   @media (prefers-color-scheme: dark) {
     html[data-cal-theme='auto'] {
-      --cal-page: #000000;
-      --cal-page-2: #121216;
-      --cal-card: #1c1c1e;
-      --cal-card-2: #141416;
-      --cal-ink: #ffffff;
-      --cal-ink-2: rgba(235, 235, 245, 0.60);
-      --cal-ink-3: rgba(235, 235, 245, 0.30);
-      --cal-hover: rgba(120, 120, 128, 0.32);
-      --cal-today: #ff453a;
-      --cal-warn: #ff9f0a;
-      --cal-wash: rgba(10, 132, 255, 0.10);
-      --cal-ripple: rgba(10, 132, 255, 0.30);
+      color-scheme: dark;
+      --cal-page: #17141d;
+      --cal-page-3: #1d1826;
+      --cal-page-2: #241d2e;
+      --cal-card: #221e2b;
+      --cal-card-2: #1b1724;
+      --cal-ink: #f3eefa;
+      --cal-ink-2: rgba(240, 232, 250, 0.62);
+      --cal-ink-3: rgba(240, 232, 250, 0.32);
+      --cal-hover: rgba(255, 255, 255, 0.10);
+      --cal-accent: #ff6ad5;
+      --cal-accent-2: #9b7cff;
+      --cal-today: #ff5c8a;
+      --cal-warn: #ffb04d;
+      --cal-wash: rgba(255, 106, 213, 0.10);
+      --cal-ripple: rgba(255, 106, 213, 0.30);
       --cal-outside: 0.32;
+      --cal-chrome: linear-gradient(var(--cal-ink), var(--cal-ink));
+      --cal-gloss: rgba(255, 255, 255, 0.14);
     }
   }
 
@@ -76,26 +109,56 @@
     align-items: flex-start;
     justify-content: center;
     padding: 24px 16px;
-    background: linear-gradient(180deg, var(--cal-page, #f2f2f7) 0%, var(--cal-page-2, #e7e7ef) 100%);
+    background: linear-gradient(180deg, var(--cal-page) 0%, var(--cal-page-3) 48%, var(--cal-page-2) 100%);
     background-attachment: fixed;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
-      'Segoe UI', system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+      'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
   }
 
-  /* ── 日历主体：一张圆角卡片，靠留白与渐变分层，不用边框与阴影 ────── */
+  /* 主体：磨砂泡泡卡（光泽边+内高光） */
   .cal {
+    position: relative;
     width: 100%;
     max-width: 420px;
     padding: 20px 16px 18px;
+    border: 1px solid var(--cal-gloss);
     border-radius: var(--cal-radius);
-    background: linear-gradient(180deg, var(--cal-card) 0%, var(--cal-card-2, var(--cal-card)) 100%);
+    background: linear-gradient(180deg, var(--cal-card) 0%, var(--cal-card-2) 100%);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 18px 44px rgba(88, 40, 140, 0.2), inset 0 1px 0 var(--cal-gloss), inset 0 0 44px rgba(255, 255, 255, 0.3);
     color: var(--cal-ink);
   }
 
-  /* ── 顶部：控件行 + 大标题 + 选中日期说明 ────── */
-  .cal-head { padding: 2px 6px 0; }
+  /* 顶部：控件行 + 大标题 + 选中日说明 */
+  .cal-head { position: relative; padding: 2px 6px 0; }
+
+  /* Y2K 装饰：只落标题区；不占高度不挡点击 */
+  .cal-deco { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .cal-deco i {
+    position: absolute;
+    left: 2%;
+    top: 3px;
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(140deg, var(--cal-accent), var(--cal-accent-2));
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+    animation: cal-float 7s ease-in-out infinite;
+  }
+  .cal-deco i:nth-child(2) { left: auto; right: 24%; top: 52px; width: 13px; height: 13px; animation-delay: -2.4s; }
+  .cal-fly {
+    position: absolute;
+    right: 6%;
+    top: 44px;
+    width: 26px;
+    height: 26px;
+    fill: var(--cal-accent);
+    animation: cal-float 7s ease-in-out infinite -1.2s;
+  }
+  @keyframes cal-float {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-9px) rotate(14deg); }
+  }
 
   .cal-bar {
     display: flex;
@@ -134,12 +197,20 @@
   .cal-arrow:hover { color: var(--cal-ink); }
   .cal-arrow svg { width: 16px; height: 16px; display: block; }
 
+  /* 大标题：全页唯一高光点——铬面 + 3D 边 */
   .cal-title {
+    display: inline-block;
     margin: 14px 0 0;
-    font-size: 30px;
+    font-family: 'Fredoka', 'Nunito', -apple-system, system-ui, sans-serif;
+    font-size: 34px;
     line-height: 1.15;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
+    background-image: var(--cal-chrome);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 1px rgba(88, 40, 140, 0.30));
   }
   .cal-subtitle {
     margin: 6px 0 0;
@@ -149,7 +220,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ── 星期表头 ────── */
+  /* 星期表头 */
   .cal-weekdays {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -164,14 +235,14 @@
     letter-spacing: 0.02em;
   }
 
-  /* ── 日期网格：7 列 × 6 行，星期一为首列 ────── */
+  /* 日期网格：7 列 × 6 行，周一首列 */
   .cal-grid {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
     margin-top: 2px;
     user-select: none;
     -webkit-user-select: none;
-    touch-action: pan-y;           /* 纵向留给页面滚动，横向留给切月手势 */
+    touch-action: pan-y;           /* 纵向留给滚动，横向留给切月手势 */
     cursor: default;
   }
   .cal-grid:focus { outline: none; }
@@ -204,7 +275,7 @@
     font-variant-numeric: tabular-nums;
     transition: background-color 0.14s ease, color 0.14s ease;
   }
-  /* ── 任务密度点：一天最多三枚，按"最紧急优先"排序后取前三个 ────── */
+  /* 密度点：一天最多三枚，按紧急度取前三 */
   .cal-dots {
     height: 5px;
     display: flex;
@@ -222,7 +293,7 @@
   .cal-dot.is-overdue { background: var(--cal-today); opacity: 1; }
   .cal-dot.is-priority { background: var(--cal-warn); opacity: 1; }
   .cal-dot.is-done { background: var(--cal-ink); opacity: 0.22; }
-  /* 日记字数点（Calendar 插件风格）：中性灰，排在任务点前面 */
+  /* 日记字数点（Calendar）：中性灰，排在任务点前 */
   .cal-dot.is-note { background: var(--cal-ink); opacity: 0.42; }
   .cal-day:hover .cal-day-num { background: var(--cal-hover); }
   .cal-day:focus-visible { outline: none; }
@@ -230,14 +301,16 @@
 
   .cal-day.is-outside { opacity: var(--cal-outside); }          /* 非当月日期弱化 */
   .cal-day.is-today .cal-day-num { color: var(--cal-today); font-weight: 600; }
-  .cal-day.is-selected .cal-day-num {                            /* 选中态：iOS 蓝圆形填充 */
-    background: var(--cal-accent);
+  .cal-day.is-selected .cal-day-num {                            /* 选中态：泡泡渐变填充 */
+    background-image: linear-gradient(140deg, var(--cal-accent) 0%, var(--cal-accent-2) 100%);
     color: var(--cal-accent-ink);
     font-weight: 600;
   }
-  .cal-day.is-selected:hover .cal-day-num { background: var(--cal-accent); }
+  .cal-day.is-selected:hover .cal-day-num {
+    background-image: linear-gradient(140deg, var(--cal-accent) 0%, var(--cal-accent-2) 100%);
+  }
 
-  /* ── 切月动效：方向感的一次轻推（跟随手势时用即时位移，不带过渡） ────── */
+  /* 切月动效：一次轻推；跟手走即时位移 */
   .cal-grid.is-anim { animation: cal-push-in 0.18s ease-out; }
   .cal-grid.is-anim-next { animation-name: cal-push-in-next; }
   .cal-grid.is-anim-prev { animation-name: cal-push-in-prev; }
@@ -253,9 +326,10 @@
   @media (prefers-reduced-motion: reduce) {
     .cal-grid.is-anim { animation: none; }
     .cal-day-num { transition: none; }
+    .cal-deco i { animation: none; }
   }
 
-  /* ── 选中日的任务列表：靠留白分段，全程不加边框与阴影 ────── */
+  /* 选中日任务列表：靠留白分段 */
   .cal-tasks { margin-top: 14px; padding: 0 4px 2px; }
   .cal-tasks[hidden] { display: none; }
   .cal-tasks-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
@@ -329,7 +403,7 @@
   .cal-tasks-notice { color: var(--cal-warn); }
   .cal-tasks-note[hidden], .cal-tasks-empty[hidden], .cal-tasks-notice[hidden] { display: none; }
 
-  /* ── 日记（Obsidian daily note）：折叠块，正文用 pre-wrap 保留换行 ────── */
+  /* 日记折叠块：正文 pre-wrap 保留换行 */
   .cal-note { margin: 12px 4px 0; }
   .cal-note[hidden] { display: none; }
   .cal-note-head {
@@ -375,7 +449,7 @@
   .cal-note-new:hover { background: var(--cal-hover); }
   .cal-note-new[hidden] { display: none; }
 
-  /* ── 点击波纹：跟随指针的柔和扩散（可点元素统一切到 .cal-rippleable） ────── */
+  /* 波纹：随指针扩散；可点元素加 .cal-rippleable */
   .cal-rippleable { position: relative; overflow: hidden; }
   .cal-ripple {
     position: absolute;
@@ -397,7 +471,7 @@
     .cal-ripple { display: none; }
   }
 
-  /* ── 任务正文可编辑：悬停给出"能改"的暗示，编辑时换成输入框 ────── */
+  /* 正文可编辑：悬停暗示，编辑换输入框 */
   .cal-task-text.is-editable { cursor: text; border-radius: 4px; }
   .cal-task-text.is-editable:hover { text-decoration: underline dotted var(--cal-ink-3); text-underline-offset: 3px; }
   .cal-task-input {
@@ -416,7 +490,7 @@
     outline-offset: 1px;
   }
 
-  /* ── Day Planner 风格：进度条 + 紧凑时间轴 + 新建待办 ────── */
+  /* Day Planner：进度条 + 时间轴 + 新建待办 */
   .cal-progress {
     display: flex;
     align-items: center;
@@ -601,8 +675,9 @@
   }
   .cal-add-submit:hover { background: var(--cal-hover); }
 
-  /* ── 面板内嵌模式：铺满宿主、背景透明（宿主底色透出）、去掉卡片外观 ────── */
-  html.cal-embed, html.cal-embed body { background: transparent; }
+  /* 内嵌：铺满宿主、卡片装饰收起 */
+  /* normal 才让 iframe 透明、宿主底透出；dark 是不透明底 */
+  html.cal-embed, html.cal-embed body { background: transparent; color-scheme: normal; }
   html.cal-embed body {
     display: block;
     padding: 0;
@@ -610,20 +685,286 @@
   }
   html.cal-embed .cal {
     max-width: none;
+    border: 0;
     border-radius: 0;
-    /* 面板里底色来自宿主，只叠一层自上而下的柔和渐变，避免"糊成一片白" */
+    /* 面板底来自宿主，只叠一层柔渐变 */
     background-image: linear-gradient(180deg, var(--cal-wash) 0%, transparent 260px);
     background-color: transparent;
+    backdrop-filter: none;
+    box-shadow: none;
     padding: 14px 12px 18px;
   }
+  html.cal-embed .cal-deco { display: none; }
   html.cal-embed .cal-title { font-size: 26px; margin-top: 10px; }
   html.cal-embed .cal-day { height: 44px; }
   html.cal-embed .cal-day-num { width: 34px; height: 34px; font-size: 16px; }
+
+  /* ═══ 皮肤 2：Windows 95 复古 ═══
+     纯追加的覆盖层 —— 上面 Y2K 的规则一行未动，这里只做覆盖。
+     本块必须在文件最后：与 html.cal-embed 同分 (0,2,1)，靠源码顺序决胜。 */
+  html[data-cal-skin='win95'] {
+    /* --cal-page-2/3 只喂 Y2K 的 body 渐变，本皮肤改用网纹覆盖，故不设 */
+    --cal-page: #008080; /* 桌面青绿 */
+    --cal-card: #c0c0c0; --cal-card-2: #c0c0c0; /* 面板灰 */
+    --cal-ink: #000; --cal-ink-2: #404040; --cal-ink-3: #808080;
+    --cal-hover: #d4d0c8;
+    --cal-accent: #000080; --cal-accent-2: #1084d0; --cal-accent-ink: #fff; /* 海军蓝 */
+    --cal-today: #800000; --cal-warn: #808000; /* 暗红 / 橄榄 */
+    --cal-wash: #c0c0c0; --cal-ripple: rgba(0, 0, 128, 0.22);
+    --cal-outside: 0.35; --cal-radius: 0;
+    --cal-chrome: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+    --cal-gloss: #fff;
+    --cal-face: #c0c0c0; --cal-raise: #fff; --cal-sink: #808080; --cal-field: #fff;
+  }
+  /* 夜间变体：仍是同一套复古语言，只是把面板压暗 */
+  html[data-cal-skin='win95'][data-cal-theme='dark'] {
+    --cal-page: #1a1a2e;
+    --cal-card: #3a3a3a; --cal-card-2: #3a3a3a;
+    --cal-ink: #e8e8e8; --cal-ink-2: #b0b0b0;
+    --cal-hover: #4a4a4a;
+    --cal-accent: #1084d0; --cal-accent-2: #3aa0e0; --cal-today: #ff8080;
+    --cal-wash: #3a3a3a; --cal-ripple: rgba(16, 132, 208, 0.3);
+    --cal-chrome: linear-gradient(90deg, #000040 0%, #0a5a9a 100%);
+    --cal-face: #3a3a3a; --cal-raise: #5a5a5a; --cal-sink: #1a1a1a; --cal-field: #2a2a2a;
+  }
+  @media (prefers-color-scheme: dark) {
+    html[data-cal-skin='win95'][data-cal-theme='auto'] {
+      --cal-page: #1a1a2e;
+      --cal-card: #3a3a3a; --cal-card-2: #3a3a3a;
+      --cal-ink: #e8e8e8; --cal-ink-2: #b0b0b0;
+      --cal-hover: #4a4a4a;
+      --cal-accent: #1084d0; --cal-accent-2: #3aa0e0; --cal-today: #ff8080;
+      --cal-wash: #3a3a3a; --cal-ripple: rgba(16, 132, 208, 0.3);
+      --cal-chrome: linear-gradient(90deg, #000040 0%, #0a5a9a 100%);
+      --cal-face: #3a3a3a; --cal-raise: #5a5a5a; --cal-sink: #1a1a1a; --cal-field: #2a2a2a;
+    }
+  }
+  /* 桌面：平涂青绿 + 棋盘网纹（classic Mac 的 dither，纯 CSS 无图） */
+  html[data-cal-skin='win95'] body {
+    background-color: var(--cal-page);
+    background-image: repeating-conic-gradient(rgba(0, 0, 0, 0.06) 0% 25%, transparent 0% 50%);
+    background-size: 4px 4px;
+  }
+  html[data-cal-skin='win95'] .cal-deco { display: none; }
+  /* 窗口外框：Win95 是凸起立体边，不是 Y2K 那种柔和投影 —— 必须显式清掉 */
+  html[data-cal-skin='win95'] .cal {
+    border: 2px solid;
+    border-color: var(--cal-raise) var(--cal-sink) var(--cal-sink) var(--cal-raise);
+    box-shadow: none; backdrop-filter: none;
+  }
+  /* 内嵌形态不画窗口框（侧栏要贴合宿主）*/
+  html[data-cal-skin='win95'].cal-embed .cal { border: 0; box-shadow: none; }
+  /* 窗口层序：真窗口的标题栏在最上，控件行降级为它下面的菜单/工具条。
+     DOM 里 .cal-bar 排在 .cal-title 前面，这里用 flex order 翻转，不动 DOM、Y2K 零影响。
+     注意 .cal-subtitle 也必须给 order，否则默认 0 会插到最前面。 */
+  html[data-cal-skin='win95'] .cal-head { display: flex; flex-direction: column; }
+  html[data-cal-skin='win95'] .cal-title { order: 1; }
+  html[data-cal-skin='win95'] .cal-bar { order: 2; }
+  html[data-cal-skin='win95'] .cal-subtitle { order: 3; }
+  /* 窗口标题栏：h1 本身变成标题条；三个窗口键用伪元素 + box-shadow 画，不占 DOM */
+  html[data-cal-skin='win95'] .cal-title {
+    display: flex; align-items: center;
+    margin: 0; padding: 3px 4px 3px 6px;
+    font-family: 'VT323', 'Consolas', monospace;
+    font-size: 19px; line-height: 1.25; letter-spacing: 0;
+    background-image: var(--cal-chrome);
+    -webkit-background-clip: border-box; background-clip: border-box;
+    -webkit-text-fill-color: currentColor; color: var(--cal-accent-ink);
+    filter: none; text-align: left;
+  }
+  html[data-cal-skin='win95'] .cal-title::after {
+    /* margin-right 给 +16/+32 两个 box-shadow 预留位置，否则三键会长出标题栏右边缘 */
+    content: ''; margin-left: auto; margin-right: 32px;
+    width: 12px; height: 12px; flex: none;
+    background: var(--cal-face); border: 1px solid var(--cal-raise);
+    /* 前一个阴影盖在后一个上面：面色在前、亮边在后，凑出 1px 凸起 */
+    box-shadow: 16px 0 0 0 var(--cal-face), 16px 0 0 1px var(--cal-raise),
+                32px 0 0 0 var(--cal-face), 32px 0 0 1px var(--cal-raise);
+  }
+  /* MenuBar：控件行压成菜单条 */
+  html[data-cal-skin='win95'] .cal-bar {
+    background: var(--cal-face); border-bottom: 1px solid var(--cal-sink);
+    padding: 1px 2px; min-height: 28px;
+  }
+  /* Button：凸起立体边（outset 自动从亮面色推暗面）*/
+  html[data-cal-skin='win95'] .cal-btn,
+  html[data-cal-skin='win95'] .cal-add-submit,
+  html[data-cal-skin='win95'] .cal-tasks-refresh,
+  html[data-cal-skin='win95'] .cal-time-btn {
+    background: var(--cal-face); color: var(--cal-ink);
+    border: 2px outset var(--cal-raise); border-radius: 0;
+  }
+  html[data-cal-skin='win95'] .cal-btn:active,
+  html[data-cal-skin='win95'] .cal-add-submit:active,
+  html[data-cal-skin='win95'] .cal-time-btn:active { border-style: inset; }
+  /* 日期格：白底凹陷格，选中=海军蓝实心 */
+  html[data-cal-skin='win95'] .cal-day {
+    background: var(--cal-field); border: 1px solid var(--cal-sink); border-radius: 0;
+  }
+  html[data-cal-skin='win95'] .cal-day.is-selected .cal-day-num,
+  html[data-cal-skin='win95'] .cal-day.is-selected:hover .cal-day-num {
+    background-image: none; background-color: var(--cal-accent);
+    color: var(--cal-accent-ink); border-radius: 0;
+  }
+  /* TextField：白底凹陷输入框 */
+  html[data-cal-skin='win95'] .cal-add-text,
+  html[data-cal-skin='win95'] .cal-add-time,
+  html[data-cal-skin='win95'] .cal-time-input,
+  html[data-cal-skin='win95'] .cal-task-input {
+    background: var(--cal-field); color: var(--cal-ink);
+    border: 2px inset var(--cal-sink); border-radius: 0;
+  }
+  /* ScrollBar：16px 粗滑块 + 网纹轨道（本页原本零滚动条样式）*/
+  html[data-cal-skin='win95'] .cal-note-text::-webkit-scrollbar { width: 16px; height: 16px; }
+  html[data-cal-skin='win95'] .cal-note-text::-webkit-scrollbar-thumb {
+    background: var(--cal-face); border: 2px outset var(--cal-raise);
+  }
+  html[data-cal-skin='win95'] .cal-note-text::-webkit-scrollbar-track {
+    background: repeating-conic-gradient(#fff 0% 25%, var(--cal-face) 0% 50%);
+    background-size: 2px 2px;
+  }
+  /* 内嵌形态：标题条压矮，别把侧栏顶爆 */
+  html[data-cal-skin='win95'].cal-embed .cal-title { font-size: 20px; margin-top: 0; }
+  /* ═══ 皮肤 3：赛璐璐动画风 ═══
+     粗黑描边 + 硬位移阴影 + 平面饱和色；本风格禁用渐变/模糊/圆角。
+     同样只做覆盖，且与 cal-embed 同分 (0,2,1)，故必须留在文件最后。 */
+  html[data-cal-skin='cel'] {
+    --cal-page: #fafaf5; --cal-card: #ffffff; --cal-card-2: #ffffff;
+    --cal-ink: #1a1a2e; --cal-ink-2: rgba(26, 26, 46, 0.62); --cal-ink-3: rgba(26, 26, 46, 0.40);
+    --cal-hover: #fdf3cf; /* 平面淡黄，兼作悬停底与轨道线 */
+    --cal-accent: #e63946; --cal-accent-2: #4ea8de; --cal-accent-ink: #fff;
+    --cal-today: #e63946; --cal-warn: #f1c40f;
+    --cal-wash: #fafaf5; --cal-ripple: rgba(26, 26, 46, 0.16);
+    --cal-outside: 0.5; --cal-radius: 0;
+    --cal-chrome: none; --cal-gloss: #1a1a2e; /* 本风格禁用渐变文字 */
+  }
+  /* 夜间：仍是同一套描边语言，只是把纸底换成墨底、描边转白 */
+  html[data-cal-skin='cel'][data-cal-theme='dark'] {
+    --cal-page: #141428; --cal-card: #1f1f38; --cal-card-2: #1f1f38;
+    --cal-ink: #fafaf5; --cal-ink-2: rgba(250, 250, 245, 0.66); --cal-ink-3: rgba(250, 250, 245, 0.42);
+    --cal-hover: #2b2b4a; --cal-gloss: #fafaf5;
+  }
+  @media (prefers-color-scheme: dark) {
+    html[data-cal-skin='cel'][data-cal-theme='auto'] {
+      --cal-page: #141428; --cal-card: #1f1f38; --cal-card-2: #1f1f38;
+      --cal-ink: #fafaf5; --cal-ink-2: rgba(250, 250, 245, 0.66); --cal-ink-3: rgba(250, 250, 245, 0.42);
+      --cal-hover: #2b2b4a; --cal-gloss: #fafaf5;
+    }
+  }
+  html[data-cal-skin='cel'] body,
+  html[data-cal-skin='cel'] .cal-title { font-family: 'Baloo 2', 'Nunito', system-ui, sans-serif; }
+  /* 42 格数字留在系统栈：Baloo 2 没有表格数字，换过去圆圈会歪 */
+  html[data-cal-skin='cel'] .cal-day-num { font-family: -apple-system, system-ui, sans-serif; }
+  /* 表头星期不能用弱化墨色（=灰，本风格禁止低饱和）：改用实心墨 + 黑体。
+     没上强调色是算过对比度的——12px 正文要 4.5:1，而 #4ea8de 在米白底上只有 2.6:1、
+     #e63946 也只有 4.1:1，都不够；墨色在浅深两个主题下都远超。 */
+  html[data-cal-skin='cel'] .cal-weekday {
+    color: var(--cal-gloss); font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  html[data-cal-skin='cel'] body { background-image: none; background-color: var(--cal-page); }
+  html[data-cal-skin='cel'] .cal-deco { display: none; }
+  /* 卡片：3px 粗黑描边 + 4px 硬阴影，无渐变无模糊 */
+  html[data-cal-skin='cel'] .cal {
+    background-image: none; background-color: var(--cal-card);
+    border: 3px solid var(--cal-gloss); border-radius: 0;
+    box-shadow: 4px 4px 0 var(--cal-gloss); backdrop-filter: none;
+  }
+  html[data-cal-skin='cel'].cal-embed .cal { border: 0; box-shadow: none; }
+  /* 标题：粗黑实心字；解掉 Y2K 的渐变裁切 */
+  html[data-cal-skin='cel'] .cal-title {
+    background-image: none;
+    -webkit-background-clip: border-box; background-clip: border-box;
+    -webkit-text-fill-color: currentColor; color: var(--cal-ink);
+    filter: none; font-weight: 900; text-transform: uppercase; letter-spacing: -0.01em;
+  }
+  /* 按钮：硬阴影随按下位移收缩，75ms 线性（卡通抽帧感，禁 ease-in-out） */
+  html[data-cal-skin='cel'] .cal-btn,
+  html[data-cal-skin='cel'] .cal-add-submit,
+  html[data-cal-skin='cel'] .cal-tasks-refresh,
+  html[data-cal-skin='cel'] .cal-time-btn,
+  html[data-cal-skin='cel'] .cal-task-state {
+    background: var(--cal-accent); color: #fff; font-weight: 900; text-transform: uppercase;
+    border: 3px solid var(--cal-gloss); border-radius: 0;
+    box-shadow: 3px 3px 0 var(--cal-gloss);
+    transition: transform 75ms linear, box-shadow 75ms linear, background-color 75ms linear;
+  }
+  html[data-cal-skin='cel'] .cal-btn:hover,
+  html[data-cal-skin='cel'] .cal-add-submit:hover { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--cal-gloss); }
+  /* 挤压拉伸：横向撑开、纵向压扁，阴影瞬间归零（硬碰撞感） */
+  html[data-cal-skin='cel'] .cal-btn:active,
+  html[data-cal-skin='cel'] .cal-add-submit:active,
+  html[data-cal-skin='cel'] .cal-time-btn:active {
+    transform: translate(3px, 3px) scale(1.1, 0.9); box-shadow: none;
+  }
+  /* 高光扫过：白色斜条纹 hover 时掠过按钮 */
+  html[data-cal-skin='cel'] .cal-btn::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 40%;
+    background: rgba(255, 255, 255, 0.3); transform: translateX(-200%) skewX(-12deg);
+    transition: transform 75ms linear; pointer-events: none;
+  }
+  html[data-cal-skin='cel'] .cal-btn:hover::after { transform: translateX(260%) skewX(-12deg); }
+  /* 焦点环：按钮底色本身就是强调红，沿用默认的 --cal-accent 环会完全看不见。
+     改用墨色描边 + 外扩留缝（环落在白卡上，对比度足够，且与按钮自己的黑边分得开）。 */
+  html[data-cal-skin='cel'] .cal-btn:focus-visible,
+  html[data-cal-skin='cel'] .cal-add-submit:focus-visible,
+  html[data-cal-skin='cel'] .cal-tasks-refresh:focus-visible,
+  html[data-cal-skin='cel'] .cal-time-btn:focus-visible,
+  html[data-cal-skin='cel'] .cal-task-state:focus-visible {
+    outline: 3px solid var(--cal-gloss); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* 本风格的位移 / 挤压 / 斜条纹扫过都是装饰性运动，减少动态效果时一律取消。
+       保留硬阴影的收缩：那是静态视觉反馈，不是运动。 */
+    html[data-cal-skin='cel'] .cal-btn,
+    html[data-cal-skin='cel'] .cal-add-submit,
+    html[data-cal-skin='cel'] .cal-tasks-refresh,
+    html[data-cal-skin='cel'] .cal-time-btn,
+    html[data-cal-skin='cel'] .cal-task-state { transition: none; }
+    html[data-cal-skin='cel'] .cal-btn:hover,
+    html[data-cal-skin='cel'] .cal-add-submit:hover,
+    html[data-cal-skin='cel'] .cal-tasks-refresh:hover,
+    html[data-cal-skin='cel'] .cal-time-btn:hover,
+    html[data-cal-skin='cel'] .cal-task-state:hover,
+    html[data-cal-skin='cel'] .cal-btn:active,
+    html[data-cal-skin='cel'] .cal-add-submit:active,
+    html[data-cal-skin='cel'] .cal-tasks-refresh:active,
+    html[data-cal-skin='cel'] .cal-time-btn:active,
+    html[data-cal-skin='cel'] .cal-task-state:active { transform: none; }
+    html[data-cal-skin='cel'] .cal-btn::after { display: none; }
+  }
+  /* 日期格：粗描边直角块（网格太密，不叠位移阴影，否则会压到邻格） */
+  html[data-cal-skin='cel'] .cal-day {
+    background: var(--cal-card); border: 3px solid var(--cal-gloss); border-radius: 0;
+  }
+  html[data-cal-skin='cel'] .cal-day.is-selected .cal-day-num,
+  html[data-cal-skin='cel'] .cal-day.is-selected:hover .cal-day-num {
+    background-image: none; background-color: var(--cal-accent); color: #fff; border-radius: 0;
+  }
+  /* 输入框：3px 描边，聚焦环用强调红——与自身的黑描边分得开，且在米白底上有 4.1:1 */
+  html[data-cal-skin='cel'] .cal-add-text,
+  html[data-cal-skin='cel'] .cal-add-time,
+  html[data-cal-skin='cel'] .cal-time-input,
+  html[data-cal-skin='cel'] .cal-task-input {
+    background: var(--cal-card); color: var(--cal-ink);
+    border: 3px solid var(--cal-gloss); border-radius: 0;
+  }
+  html[data-cal-skin='cel'] .cal-add-text:focus-visible,
+  html[data-cal-skin='cel'] .cal-add-time:focus-visible,
+  html[data-cal-skin='cel'] .cal-time-input:focus-visible,
+  html[data-cal-skin='cel'] .cal-task-input:focus-visible {
+    outline: 3px solid var(--cal-accent); outline-offset: 0;
+  }
+  html[data-cal-skin='cel'] .cal-timeline, html[data-cal-skin='cel'] .cal-progress-bar { border-radius: 0; }
+  html[data-cal-skin='cel'] .cal-progress-bar { border: 2px solid var(--cal-gloss); background: var(--cal-card); }
+  html[data-cal-skin='cel'] .cal-progress-bar i { background: var(--cal-accent-2); }
+  /* 切换按钮（两套皮肤共用基础样式，立体边由上面的 .cal-btn 规则补） */
+  .cal-skin { font-size: 13px; font-weight: 700; padding: 5px 9px; margin-left: 2px; }
 </style>
 </head>
 <body>
   <main class="cal" id="cal" aria-label="月历">
     <header class="cal-head">
+      <div class="cal-deco" aria-hidden="true"><i></i><i></i><svg class="cal-fly" viewBox="0 0 24 24"><path d="M11 12C8 6 2 3 1 7C0 10 6 12 11 12ZM11 12C8 18 2 21 1 17C0 14 6 12 11 12ZM13 12C16 6 22 3 23 7C24 10 18 12 13 12ZM13 12C16 18 22 21 23 17C24 14 18 12 13 12Z"/><ellipse cx="12" cy="12" rx="1" ry="5"/></svg></div>
       <div class="cal-bar">
         <button class="cal-btn cal-rippleable" id="calTodayBtn" type="button" hidden>今天</button>
         <span class="cal-bar-spacer"></span>
@@ -639,6 +980,7 @@
               stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
+        <button class="cal-btn cal-skin cal-rippleable" id="calSkinBtn" type="button"></button>
       </div>
       <h1 class="cal-title" id="calTitle">—</h1>
       <p class="cal-subtitle" id="calSubtitle">—</p>
@@ -704,6 +1046,7 @@
     prev: document.getElementById('calPrev'),
     next: document.getElementById('calNext'),
     todayBtn: document.getElementById('calTodayBtn'),
+    skinBtn: document.getElementById('calSkinBtn'),
     tasks: document.getElementById('calTasks'),
     tasksTitle: document.getElementById('calTasksTitle'),
     tasksRefresh: document.getElementById('calTasksRefresh'),
@@ -1773,6 +2116,35 @@
     render(0)
   })
 
+  /* ── 皮肤切换 ──
+     两套皮肤都在同一份 CSS 里，所以切换只是翻一个属性：不重载、不拉新资源。 */
+  var SKIN_LABEL = { y2k: 'Y2K', win95: 'Win95', cel: '赛璐璐' }
+  var SKIN_ORDER = ['y2k', 'win95', 'cel']
+  function currentSkin() {
+    var s = document.documentElement.dataset.calSkin
+    return SKIN_ORDER.indexOf(s) >= 0 ? s : 'y2k'
+  }
+  function labelSkinBtn() {
+    var cur = currentSkin()
+    var next = SKIN_ORDER[(SKIN_ORDER.indexOf(cur) + 1) % SKIN_ORDER.length]
+    els.skinBtn.textContent = SKIN_LABEL[next]
+    var tip = '当前 ' + SKIN_LABEL[cur] + ' 皮肤，切换到 ' + SKIN_LABEL[next]
+    els.skinBtn.setAttribute('aria-label', tip)
+    els.skinBtn.title = tip
+  }
+  function setSkin(skin) {
+    var s = SKIN_ORDER.indexOf(skin) >= 0 ? skin : 'y2k'
+    document.documentElement.dataset.calSkin = s
+    /* 隐私模式 / file:// 下 localStorage 可能直接抛，写不进就算了 */
+    try { localStorage.setItem('cal-skin', s) } catch (err) { }
+    if (window.__calFont) window.__calFont(s)
+    labelSkinBtn()
+  }
+  els.skinBtn.addEventListener('click', function () {
+    setSkin(SKIN_ORDER[(SKIN_ORDER.indexOf(currentSkin()) + 1) % SKIN_ORDER.length])
+  })
+  labelSkinBtn()
+
   render(0)
   loadTasks(false)
 
@@ -1784,6 +2156,8 @@
       document.documentElement.dataset.calTheme =
         (theme === 'light' || theme === 'dark') ? theme : 'auto'
     },
+    setSkin: setSkin,
+    getSkin: currentSkin,
     el: els.grid
   }
 })()

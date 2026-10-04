@@ -1,6 +1,6 @@
 {
   "name": "dsh-calendar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "把 Obsidian 的日记、待办与时间轴内联进 DSH 右侧栏：月历 + Day Planner 风格时间轴 + Calendar 字数点，勾选/改内容/改时间会写回你的 Markdown",
   "type": "module",
   "main": "./lib/index.js",

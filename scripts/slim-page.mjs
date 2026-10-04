@@ -1,15 +1,26 @@
 /**
  * 一次性瘦身脚本：把 standalone/calendar.html 压回 64KB 以内。
  *
- * 为什么要压：交付 gate 的 encoding-utf8 会固定切文件头 64KB 做严格 UTF-8 解码，
- * 文件一旦超过 64KB 且边界正好落在多字节字符中间，就会误报"不是合法 UTF-8"。
- * 压到 64KB 以下既满足 gate，也符合"简约"的原始要求。
+ * ⚠️ 已退役（2026-10-04）：体积政策放宽到 90KiB 后，64KB 这条自加上限不复存在，
+ *    本脚本不再需要跑。保留下来只为应急，不是一个长期闸门。
+ *
+ * 背景与现行政策：
+ *   - **真约束**：交付 gate 的 encoding-utf8 会固定切文件头 64KB 做严格 UTF-8 解码，
+ *     所以那 64KB 必须解得出 —— 即字节 65536 不能落在多字节字符中间。
+ *   - **自加余量**：以前额外要求"总体积 < 64KB"，那是本项目的自我约束，不是外部要求。
+ *     加了三套皮肤（y2k / win95 / cel）后放宽到 90KiB；真正的判定在
+ *     `tasks-render.test.mjs` 与 `pack.mjs` 里。
+ *   - 已实测交付管道是**校验**而非**截断**：82,595 B 的页面取回来一个字节不少，
+ *     所以"超过 64KB 会被切断"的担心不成立。
  *
  * 只做**零信息损失**或**已被 README 覆盖**的删减：
  *   1. 装饰性的长横线（─/═ 连续 7 个以上）压到 6 个
  *   2. <script> 里的注释行（README 已完整记录）；保留 #region / #endregion 标记
  *   3. 连续空行压成一个
- * 全部保留：CSS 注释（逐条规则注解）、所有代码、所有字符串、region 标记。
+ * 全部保留：所有代码、所有字符串、region 标记，以及 CSS 注释（逐条规则注解）。
+ * 注：CSS 注释本身是**手工**压缩过的（Y2K 改版时为了给装饰腾字节），本脚本不会再动它们。
+ *     ⚠️ 皮肤覆盖块（win95 / cel）的顶头注释是**布局约束的说明**，删了会让后续维护者
+ *     踩回"特异性同分靠源码顺序"的坑，所以那些注释不要当作可压缩量。
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 
@@ -71,4 +82,4 @@ page = collapseBlankLines(page)
 
 writeFileSync(path, page, 'utf8')
 console.log('before:', bytes(original), 'after:', bytes(page), 'saved:', bytes(original) - bytes(page))
-console.log('under 65536:', bytes(page) < 65536)
+console.log('自加上限 92160 (90KiB):', bytes(page) < 92160)

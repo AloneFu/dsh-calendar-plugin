@@ -86,10 +86,20 @@ if (!skipTests) {
   log(`  → 回归合计 ${total} 项断言全绿`)
 }
 
-/* ── 4. 体积守卫（交付 gate 会切 64KB 头做 UTF-8 校验）────────────────────── */
+/* ── 4. 体积守卫 ───────────────────────────────────────────────────────────
+ * 硬约束：交付 gate 切文件头 64KB 做严格 UTF-8 解码，那 64KB 必须解得出。
+ * 总上限 90KiB 是本项目自加的防膨胀闸（加皮肤后从 64KB 放宽），不是外部要求。
+ * 这里用 Buffer.byteLength 而不是 String.length：后者数的是 UTF-16 码元，
+ * 遇到非 BMP 字符（emoji 等）会和真实字节数分歧。 */
 const page = readFileSync(join(target, 'standalone', 'calendar.html'))
-if (page.length >= 65536) throw new Error(`calendar.html 体积 ${page.length} ≥ 65536，先跑 scripts/slim-page.mjs`)
-log(`  ✓ 页面体积 ${page.length} B < 65536`)
+const pageBytes = page.byteLength
+const HARD_HEAD = 65536
+const CEILING = 92160 /* 90 KiB */
+if (pageBytes >= CEILING) throw new Error(`calendar.html 体积 ${pageBytes} ≥ ${CEILING}，先跑 scripts/slim-page.mjs`)
+let headOk = true
+try { new TextDecoder('utf-8', { fatal: true }).decode(page.subarray(0, HARD_HEAD)) } catch { headOk = false }
+if (!headOk) throw new Error('calendar.html 头部 64KB 切片不是合法 UTF-8：交付 gate 会拒收')
+log(`  ✓ 页面体积 ${pageBytes} B < ${CEILING}，头 64KB 切片是合法 UTF-8`)
 
 if (dry) { log('\n--dry：已同步，未打包'); process.exit(0) }
 

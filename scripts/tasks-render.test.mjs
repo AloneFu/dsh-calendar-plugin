@@ -239,7 +239,10 @@ check('dayTooltip：有任务时带完成比', /1\/2 个任务完成/.test(dayTo
 /* ── 静态耦合检查（不跑浏览器也能抓到的接线错误） ───────────────────────────── */
 {
   const ids = [...new Set([...page.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]))].sort()
-  const missing = ids.filter((id) => !new RegExp(`id="${id}"`).test(page))
+  /* calFontLink 是 head 脚本按皮肤 insertAdjacentHTML 注入的字体 <link>，
+     静态 markup 里本来就没有；它是"按需创建"而不是"漏写节点"，故显式豁免。 */
+  const RUNTIME_IDS = new Set(['calFontLink'])
+  const missing = ids.filter((id) => !RUNTIME_IDS.has(id) && !new RegExp(`id="${id}"`).test(page))
   check(`getElementById 用到的 ${ids.length} 个 id 都在 markup 里`, missing, [])
 }
 check('页面仍定义 WEEKDAY_FULL', /var WEEKDAY_FULL = \[/.test(page), true)
@@ -294,17 +297,21 @@ check('时间轴/进度/新建的样式齐备',
   /\.cal-timeline \{/.test(page) && /\.cal-now \{/.test(page) && /\.cal-hour-label \{/.test(page) &&
   /\.cal-add-text \{/.test(page), true)
 
-/* ── 体积守卫：交付 gate 会固定切文件头 64KB 做严格 UTF-8 解码 ────────────────
- * 页面一旦超过 65536 字节，且边界正好落在多字节字符（中文/emoji/框线）中间，
- * 就会被判成"不是合法 UTF-8"。所以这里把上限钉死在 64KB 并留出余量。
- * 需要瘦身时跑 `node scripts/slim-page.mjs`（做零信息损失的删减）。 */
+/* ── 体积守卫 ────────────────────────────────────────────────────────────────
+ * 硬约束只有一条：交付 gate 固定切文件头 64KB 做严格 UTF-8 解码，所以那 64KB 必须
+ * 解得出——也就是说字节 65536 不能落在多字节字符（中文/emoji/框线）中间。
+ * 「总体积 < 64KB」是本项目自加的余量，不是外部要求：加了第二、第三套皮肤后
+ * (win95 / cel) 已放宽到 90KiB。放宽后这条只剩"防无限膨胀"的作用，真正的闸门是
+ * 下面那条头 64KB 切片检查。要瘦身跑 `node scripts/slim-page.mjs`。 */
 {
   const pageBytes = Buffer.byteLength(page, 'utf8')
-  check(`页面体积 < 65536 字节（当前 ${pageBytes}，余量 ${65536 - pageBytes}）`, pageBytes < 65536, true)
+  const CEILING = 92160 /* 90 KiB */
+  check(`页面体积在上限内（当前 ${pageBytes} / ${CEILING}）`, pageBytes < CEILING, true)
   let wholeOk = true
   let headOk = true
   const buf = Buffer.from(page, 'utf8')
   try { new TextDecoder('utf-8', { fatal: true }).decode(buf) } catch { wholeOk = false }
+  /* fatal 解码切到半个多字节字符就会抛，所以这条同时钉住了"字节 65536 不切字符" */
   try { new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, 65536)) } catch { headOk = false }
   check('整篇是合法 UTF-8', wholeOk, true)
   check('文件头 64KB 切片也是合法 UTF-8（gate 的切法）', headOk, true)

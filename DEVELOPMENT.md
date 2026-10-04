@@ -8,8 +8,12 @@
 
 ## 原始需求与实现概览
 
-一个 iOS 视觉语言的极简月历，以 **DSH web 插件包** 的形式挂在右侧栏（`sidebar.right.pane.tab`）里。
-零外部依赖、零外部 API、不加载任何字体/图片/脚本资源，日期计算全部走原生 `Date`。
+一个极简月历，以 **DSH web 插件包** 的形式挂在右侧栏（`sidebar.right.pane.tab`）里。
+零外部 API、无第三方运行时，日期计算全部走原生 `Date`；**内置三套可切换皮肤**——
+默认 **Y2K**（泡泡/铬面），另有 **Win95**（窗口/16 色立体边）与 **赛璐璐**（硬描边/硬阴影），
+`?skin=y2k|win95|cel` 指定，或点页内按钮循环切换。
+默认按皮肤加载 1 个外链字体（y2k = Fredoka/Nunito，win95 = VT323，cel = Baloo 2），
+`?font=0` 可关掉、回到完全离线的零请求形态。
 
 ```
 dsh-calendar/
@@ -19,12 +23,16 @@ dsh-calendar/
 │  ├─ index.js           # host 半边：/preview 页面 + /tasks 任务 JSON（Obsidian Tasks 只读扫描）+ /status 自检
 │  └─ client.js          # client 半边：右侧栏 tab 类型 + 面板正文（iframe 内嵌预览页）+ header 入口按钮
 ├─ scripts/
-│  ├─ verify-ui.mjs          # 页面无头验收（CDP 驱动本机 Chrome/Edge，零 npm 依赖，27 项断言 + 截图）
-│  ├─ fit-logic.test.mjs     # 面板高度自适应回归（从 bundle 抽真代码，13 项断言，不需要浏览器）
-│  ├─ tasks-parse.test.mjs   # Obsidian Tasks 行解析回归（从 lib/index.js 抽真代码，43 项断言）
+│  ├─ verify-ui.mjs          # 页面无头验收（CDP 驱动本机 Chrome/Edge，零 npm 依赖，71 项断言 + 截图）
+│  ├─ tasks-parse.test.mjs   # Obsidian Tasks 行解析回归（从 lib/index.js 抽真代码，127 项断言）
 │  ├─ tasks-render.test.mjs  # 展示 + 时间轴 + 写回交互回归（从 calendar.html 抽真代码，123 项断言）
+│  ├─ setup.test.mjs         # 首次向导 / 路径校验 / CLI / HTTP /setup 回归（38 项断言）
 │  ├─ auto-open.test.mjs     # 自动打开日历 tab 的记账语义回归（16 项断言）
-│  └─ slim-page.mjs          # 页面瘦身（零信息损失），保证 < 64KB 以过交付 gate 的 UTF-8 头切片校验
+│  ├─ fit-logic.test.mjs     # 面板高度自适应回归（从 bundle 抽真代码，13 项断言，不需要浏览器）
+│  ├─ setup.mjs              # 向导的 CLI 半边（--print / --detect [--json] / --root），供 AI 代配
+│  ├─ pack.mjs               # 同步 dsh-calendar-plugin/ → 回归 → 体积守卫 → npm pack
+│  ├─ slim-page.mjs          # 页面瘦身（一次性；体积政策放宽到 90KiB 后已退役，见文件头注释）
+│  └─ store-shots.mjs        # 重拍 assets/screenshot-*.png（一次性；三套皮肤 × 浅/深 = 6 张）
 ├─ standalone/
 │  └─ calendar.html      # ★ 唯一真源：单文件零依赖日历页（可直接双击打开）
 └─ README.md
@@ -38,7 +46,7 @@ dsh-calendar/
 不保证父级是"有确定高度的 flex 容器"；那种情况下 iframe 的 `height:100%` 会解析成 auto，
 退回 Chromium iframe 默认高度 150px，面板里就只露大标题与星期表头（实测缺陷「无日期」）。
 所以正文还会用 `ResizeObserver` + 挂载后补量把高度写成像素（就近取第一个有确定高度的祖先，
-取不到就兜底 430px）。回归测试见 `scripts/fit-logic.test.mjs`。
+取不到就兜底 440px）。回归测试见 `scripts/fit-logic.test.mjs`。
 
 ---
 
@@ -48,17 +56,21 @@ dsh-calendar/
 |---|---|
 | 大标题日期 | 30px / 700 字重的大标题（`2026年9月`），其下为选中日说明（含星期） |
 | 七列网格 | CSS Grid `repeat(7, 1fr)`，6 行固定 42 格，日期数字在 36px 圆形内居中 |
-| 今日高亮 | 默认选中今天（iOS 蓝 `#007AFF` 圆形填充）；选别处后今天转为 iOS 红字 `#FF3B30` |
-| 圆角卡片 | 卡片 22px 圆角，靠留白与底色分层 |
-| 浅/深色 | `prefers-color-scheme` + CSS 变量；`?theme=light\|dark` 可强制（面板用它跟随宿主） |
-| 字体 | `-apple-system, BlinkMacSystemFont, "SF Pro Display/Text", system-ui, "PingFang SC", …` |
-| 选中态 | iOS 蓝圆形填充 + 白字 |
+| 今日高亮 | 默认选中今天（品红→靛紫渐变圆填充）；选别处后今天转为热粉 `#ff2f86` 字 |
+| 泡泡卡片 | 26px 圆角磨砂卡：光泽边 + 内高光（`backdrop-filter: blur(14px)`） |
+| 浅/深色 | `prefers-color-scheme` + CSS 变量；`?theme=light\|dark` 可强制（面板用它跟随宿主）；`color-scheme` 跟随令牌，内嵌固定 `normal` |
+| **皮肤（可切换）** | 三套视觉语言同文件共存，`?skin=y2k\|win95\|cel` 或页内按钮切换，**不重载页面**、选择存 `localStorage['cal-skin']`。**Y2K 是默认**；`?skin=` > localStorage > `y2k`。皮肤只在末尾追加覆盖规则，不改 Y2K 一行 |
+| — Y2K（默认） | 泡泡渐变页底 + 铬面大标题 + 磨砂光泽卡 + 星星/蝴蝶 |
+| — Win95 | 青绿桌面 + `#c0c0c0` 灰面 + outset/inset 立体边 + 海军蓝→亮蓝渐变标题条（含三个装饰窗口键）；配色限定经典 16 色；菜单条 + 16px 网纹滚动条 |
+| — 赛璐璐 | 3px `#1a1a2e` 硬描边 + `4px 4px 0` 硬位移阴影 + 平面饱和色（`#e63946 / #4ea8de / #f1c40f`）；**禁用渐变/模糊/圆角**；按钮 hover 位移、active 挤压变形 + 白色斜条纹扫过 |
+| 字体 | 按皮肤外链一套：Y2K = `Fredoka`+`Nunito`，Win95 = `VT323`（像素字，仅标题），赛璐璐 = `Baloo 2`；`?font=0` 全关；中文回落 `PingFang SC / Microsoft YaHei`。42 格数字始终走系统栈以保住 `tabular-nums` 对齐 |
+| 选中态 | 品红→靛紫渐变圆 + 白字 |
 | 非当月日期 | `opacity: .28`（深色 `.32`）弱化 |
-| 无装饰 | 全局 **零 border、零 box-shadow**（图标为内联 SVG） |
+| 装饰 | 标题区 2 星 + 1 蝴蝶（内联 SVG / `clip-path`），绝对定位、不占高度、`pointer-events: none`；内嵌形态隐藏 |
 | 左右切月 | 箭头按钮 + 指针滑动手势（横向阈值 48px）+ 键盘 `←/→` |
 | 点击选中 | 点击任意一天即高亮该日期，并同步标题下的说明与「今天」按钮显隐 |
 | 周起始日 | 周一（`(getDay()+6)%7`） |
-| 零依赖 | 无 import / 无 CDN / 无网络请求；host 半边仅用 `node:fs/promises` |
+| 零依赖 | 无 import / 无第三方运行时；唯一外部请求是 Google Fonts 的字体（`?font=0` 可关）；host 半边仅用 `node:fs/promises` |
 | 任务标记 | 每格下方最多 3 枚任务点：逾期红 · 高优橙 · 待办蓝 · 已完成灰（见第 2 节） |
 | 当日任务列表 | 选中日下方列出当天任务：状态字形 + 正文（`#tag` 高亮）+ 优先级/重复/落点/逾期标注 |
 
@@ -359,7 +371,7 @@ POST /dsh-calendar/notes/create                       # 新建某天日记（需
 ```powershell
 # ① 页面视觉 + 交互（需要本机有 Chrome / Edge；脚本自己起无头浏览器，零 npm 依赖）
 node dsh-calendar\scripts\verify-ui.mjs http://127.0.0.1:3080/dsh-calendar/preview .\verify
-# → 27/27 checks passed；产物：verify\*.png + verify\report.json
+# → 71/71 checks passed；产物：verify\*.png + verify\report.json
 
 # ② 面板高度自适应（不需要浏览器；从 bundle 抽真代码跑 13 条断言）
 node dsh-calendar\scripts\fit-logic.test.mjs .\verify\fit-logic-report.json
@@ -373,12 +385,19 @@ node dsh-calendar\scripts\tasks-render.test.mjs .\verify\tasks-render-report.jso
 # ⑤ 自动打开 tab 的记账语义（从 lib/client.js 抽真代码，16 条断言）
 node dsh-calendar\scripts\auto-open.test.mjs .\verify\auto-open-report.json
 
-# ⑥ 页面瘦身（零信息损失；只在体积守卫报警时才需要跑）
+# ⑥ 页面瘦身（已退役：体积政策放宽到 90KiB 后不再需要；脚本保留备用）
 node dsh-calendar\scripts\slim-page.mjs
 ```
 
-① 覆盖：42 格 7 列 / 周一起始 / 今日默认蓝圆 / 点击选日后今日转红字 / 箭头·手势·键盘三种切月 /
-深色媒体查询 / `?embed=1` / 零外部资源请求 / 无边框无阴影。
+① 覆盖（71 项）：**Y2K（默认皮肤，全部断言显式跑在 `?skin=y2k` 下）**——42 格 7 列 / 周一起始 /
+今日默认渐变圆 / 点击选日后今日转热粉字 / 箭头·手势·键盘三种切月 / 泡泡渐变页底 / 磨砂光泽卡 / 铬面标题 /
+装饰齐备且不拦指针 / `color-scheme` 跟随令牌 / 深色媒体查询 / `?embed=1`（透明底 · 装饰收起 ·
+`color-scheme:normal`）/ `?font=0` 零外部请求 / 默认只请求 Google Fonts。
+**Win95**——直角、柔和投影清干净、海军蓝→亮蓝渐变标题条、标题白字（铬面裁切已撤销）、VT323、1px 立体日期格、
+海军蓝选中方块、青绿桌面 + 网纹抖动、夜间变体。**赛璐璐**——零渐变、`4px 4px 0` 硬阴影、
+3px 实心描边、全直角、标题黑体大写、Baloo 2 真的被应用（不是只加载）、红色选中方块、米白底、
+星期表头是实心墨而非弱化灰。**切换按钮**——点一下换皮肤、**页面不重载**（`window` 哨兵）、
+三下一循环、不带 `?skin=` 重进仍从 `localStorage` 记得上次选择。
 ② 覆盖：父链无确定高度时**绝不能停在 iframe 默认 150px**、正常 flex/块级父级要撑满、就近取祖先、
 CSS 已撑满时不插手、挂载后补量能改口、写入幂等（避免 ResizeObserver 自反馈）、兜底高度 ≥ 页面实测需求。
 ③ 覆盖：三种勾选态 / 📅⏳🛫 落点优先级 / **Day Planner 时间头（区间与单点、非法时间、不在行首不认）** / 时钟换算 / **改描述保时间、改时间保描述** / 字数统计 / 五档优先级 / 标签 / ✅➕❌ / 🔁 / 正文清洗不留残字 / 非法日期 /
@@ -394,7 +413,8 @@ CSS 已撑满时不插手、挂载后补量能改口、写入幂等（避免 Res
 |---|---|
 | 右侧栏「+」里没有「日历」胶囊 | client 半边没装配：看 `dev_plugin_status` 的 fiber 状态；`GET /dsh-calendar/status` 看 `clientModule.registered`；再刷新一次页面 |
 | 面板打开是 404 / 纯文字报错 | host 半边没挂上路由：确认 profile 里有 `webServer`（web profile 一定有），并检查 `/dsh-calendar/preview` 是否可达 |
-| 面板里只有大标题和星期表头、**没有日期** | 内嵌 iframe 没拿到高度、被压成默认 150px（表头栈正好 154px，网格整片被裁）。已修：正文量高度写像素 + 兜底 430px；复发就跑 `scripts/fit-logic.test.mjs` 并检查坐席容器是否给了确定高度 |
+| 面板里只有大标题和星期表头、**没有日期** | 内嵌 iframe 没拿到高度、被压成默认 150px（表头栈约 171px，网格整片被裁）。已修：正文量高度写像素 + 兜底 440px；复发就跑 `scripts/fit-logic.test.mjs` 并检查坐席容器是否给了确定高度 |
+| 皮肤切换按钮点了没反应 | `localStorage` 在 `file://` / 隐私模式下可能直接抛（已 try/catch 静默降级，页面内切换仍生效）；另外确认 `document.documentElement.dataset.calSkin` 是否变了 |
 | 日历上没有任务点 | ① 该笔记库里没有带日期的任务行；② `GET /dsh-calendar/tasks?refresh=1` 看 `root` 是否符合预期、`ok`/`error`；③ 任务必须有 📅/⏳/🛫 之一才会出现在月历上 |
 | 面板里看不到我的笔记库 | 主数据源 = `$DSH_HOME/dsh-calendar/config.json` 的 `roots[0]`；确认路径存在且 `/status` 的 `workspace.source` 是 `config` |
 | 任务来自错误的目录 | 用 `?root=<已配置路径>` 或 `?root=@session` 切换；不在 `roots` 里的路径会被拒（`root-not-allowed`） |
@@ -412,15 +432,15 @@ CSS 已撑满时不插手、挂载后补量能改口、写入幂等（避免 Res
 
 ## 8. 验收清单（自检结果）
 
-- [x] 单文件页可独立打开，无任何网络请求、无边框阴影
-- [x] 大标题 / 七列 / 周一起始 / 今日默认蓝色圆选 / 非当月弱化
+- [x] 单文件页可独立打开；默认只有 1 个外链字体请求（`?font=0` 可归零 → 完全离线）
+- [x] 大标题（铬面）/ 七列 / 周一起始 / 今日默认渐变圆选 / 非当月弱化
 - [x] 箭头、滑动手势、键盘 `←/→` 三种切月方式
 - [x] 点击任意日期即时高亮，标题下说明同步
 - [x] 浅色与深色（系统 / `?theme=` / 面板主题三种来源）均正确
 - [x] 注入后 `dev_plugin_status` 为 active（`[active] e2417c89 (dsh-calendar) [injected]`）、
       预览路由 200、`/dsh-calendar/status` 报 `clientModule.registered = true` 且给出浏览器真实加载 URL
-- [x] 无头断言 27/27 PASS + 6 张截图人工复核（证据在仓库根的 `verify/`）
-- [x] 面板高度回归 13/13 PASS（`verify/fit-logic-report.json`）
+- [x] 无头断言 71/71 PASS + 10 张截图人工复核（证据在仓库根的 `verify/`）
+- [x] 面板高度回归 13/13 PASS（表头栈实测 171px、兜底 440px；证据 `verify/fit-logic-report.json`）
 - [x] 面板 tab 画面由用户实测确认可显示（并据此修掉「无日期」缺陷 —— `verify/07-panel-defect-no-dates.png`）
 - [x] Obsidian Tasks 解析 + 写回改写 + 日记识别回归 **93/93 PASS**（`verify/tasks-parse-report.json`）
 - [x] 任务展示 / 写回交互 / DOM 接线回归 **72/72 PASS**（`verify/tasks-render-report.json`）
