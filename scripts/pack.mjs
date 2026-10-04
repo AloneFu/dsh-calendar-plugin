@@ -15,7 +15,7 @@
  */
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
@@ -42,6 +42,18 @@ const ALWAYS_IGNORE = new Set(['node_modules', '.git', 'dist', 'verify', '.setup
 function log(message) {
   console.log(message)
 }
+
+/* ── 0. 防覆盖闸 ────────────────────────────────────────────────────────────
+ * 2026-10-04 的真实事故（发生两次）：在工作区形态下跑本脚本，它会把 `dsh-calendar/`（源）
+ * 整份同步到 `dsh-calendar-plugin/`（目标），而目标**正是 git 仓库** —— 于是刚提交的脱敏文档、
+ * 版本号与新加的检查被旧副本盖掉。仓库是公开产物，绝不能被当成"生成物"覆盖。
+ * 规则：目标里若有 .git，工作区模式直接拒绝；确实要覆盖得显式加 --force。 */
+if (!repoMode && existsSync(join(target, '.git')) && !process.argv.includes('--force')) {
+  throw new Error(`防覆盖闸：目标 ${target} 是一个 git 仓库，工作区模式会把它当生成物整份覆盖。\n` +
+    '  仓库形态：直接在该仓库目录里跑本脚本（原地跑测试并打到 ./dist）。\n' +
+    '  确实要覆盖：加 --force 明确表示知情。')
+}
+log('  ✓ 防覆盖闸：目标不是 git 仓库（或已显式 --force）')
 
 /* ── 1. 同步到独立交付目录（先清掉旧的代码目录，保证没有残留）─────────────── */
 log(`源   ：${source}`)
@@ -100,6 +112,45 @@ let headOk = true
 try { new TextDecoder('utf-8', { fatal: true }).decode(page.subarray(0, HARD_HEAD)) } catch { headOk = false }
 if (!headOk) throw new Error('calendar.html 头部 64KB 切片不是合法 UTF-8：交付 gate 会拒收')
 log(`  ✓ 页面体积 ${pageBytes} B < ${CEILING}，头 64KB 切片是合法 UTF-8`)
+
+/* ── 5. 隐私闸（发布前必过）─────────────────────────────────────────────────
+ * 背景：v1.0.0 / v1.1.0 的包里曾混进个人目录名与真实待办文本，已脱敏重建。
+ * 这里把"不许再发生"变成一条会**让打包失败**的检查，而不是靠人记得。
+ *
+ * 规则刻意不硬编码任何具体人名或目录名 —— 否则检查本身就变成泄露：
+ *   a) 绝对用户目录 `X:\Users\<真实用户名>\…`：`<user>` / `%USERNAME%` / `me` 等占位符放行
+ *   b) `PRIVACY_TERMS` 环境变量里逗号分隔的词：发布前用它扫真实 vault 目录名、真实待办短语，
+ *      **不必也不该**写进仓库。例：set PRIVACY_TERMS=我的日记目录,某条真实待办
+ *   c) 扫描器自身跳过（否则规则文本里的示例会自匹配）
+ */
+const SCAN_EXT = new Set(['.md', '.mjs', '.js', '.json', '.yml', '.html', '.txt'])
+const SCAN_SKIP = new Set(['node_modules', '.git', 'dist'])
+function walkText(dir, out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (SCAN_SKIP.has(entry.name) || entry.name === 'pack.mjs') continue
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) walkText(full, out)
+    else if (SCAN_EXT.has(extname(entry.name).toLowerCase())) out.push(full)
+  }
+  return out
+}
+const PLACEHOLDER = /^(<[^>]+>|%USERNAME%|you|me|example|user)$/i
+const findings = []
+const extraTerms = (process.env.PRIVACY_TERMS || '').split(',').map((v) => v.trim()).filter(Boolean)
+const scanned = walkText(target)
+for (const file of scanned) {
+  const text = readFileSync(file, 'utf8')
+  const rel = relative(target, file).split('\\').join('/')
+  for (const m of text.matchAll(/\b[A-Za-z]:\\+Users\\+([^\\\s"'`]+)/g)) {
+    if (!PLACEHOLDER.test(m[1])) findings.push(rel + ': 绝对用户目录 ' + m[0])
+  }
+  for (const term of extraTerms) if (text.includes(term)) findings.push(rel + ': 命中 PRIVACY_TERMS 词 ' + term)
+}
+if (findings.length > 0) {
+  for (const f of findings.slice(0, 20)) log('    x ' + f)
+  throw new Error('隐私闸拦下 ' + findings.length + ' 处疑似个人信息：先脱敏再打包（占位符写成 <user> / me）')
+}
+log('  ✓ 隐私闸：' + scanned.length + ' 个文本文件无真实用户目录' + (extraTerms.length ? '，且未命中 PRIVACY_TERMS 的 ' + extraTerms.length + ' 个词' : '（未提供 PRIVACY_TERMS）'))
 
 if (dry) { log('\n--dry：已同步，未打包'); process.exit(0) }
 
