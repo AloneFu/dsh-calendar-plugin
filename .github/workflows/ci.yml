@@ -28,16 +28,19 @@ jobs:
       - name: 回归测试
         run: npm test
 
-      - name: 页面体积守卫（供交付 gate 的 64KB 头切片 UTF-8 校验）
+      - name: 页面体积与编码守卫（外部硬约束 + 自加防膨胀）
         run: |
           node -e "
           const fs = require('fs');
           const buf = fs.readFileSync('standalone/calendar.html');
-          if (buf.length >= 65536) { console.error('页面 ' + buf.length + ' B ≥ 65536'); process.exit(1); }
-          // 同时验证整篇与"头部 64KB 切片"都是合法 UTF-8（交付 gate 的切法）
+          // 外部硬约束（交付 gate 的切法）：整篇、以及文件头 64KB 切片，都必须是合法 UTF-8。
+          // 这条一字不可放宽 —— 头部 64KB 一旦切在半个多字节字符上，gate 就会拒收。
           new TextDecoder('utf-8', { fatal: true }).decode(buf);
           new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, 65536));
-          console.log('页面 ' + buf.length + ' B < 65536，且 UTF-8 校验通过');
+          // 自加余量：只是防膨胀，不是外部要求。加第二、第三套皮肤后从 64KiB 放宽到 90KiB。
+          const CEILING = 92160;
+          if (buf.length >= CEILING) { console.error('页面 ' + buf.length + ' B >= ' + CEILING + '（自加上限），先跑 scripts/slim-page.mjs'); process.exit(1); }
+          console.log('页面 ' + buf.length + ' B < ' + CEILING + '（自加），头 64KB 切片与整篇均为合法 UTF-8');
           "
 
       - name: 打包（npm pack）
