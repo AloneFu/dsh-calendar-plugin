@@ -1,14 +1,29 @@
-/* 一次性重拍商城截图（不随包发布）。沿用 verify-ui.mjs 的 CDP 手法，
-   宽度用 Emulation.setDeviceMetricsOverride 设定 —— 命令行 --window-size 会被
+/* 重拍商城截图。
+
+   ⚠️ 隐私红线：截图会公开在插件市场详情页上，**必须**用一套虚构的演示日记渲染，
+   绝不能指向真实 vault —— 否则会把真实的日程、待办、日记正文连同用户的目录结构一起发出去。
+   所以本脚本要求第 4 个参数显式给出演示数据根，并把它作为 ?root= 传给页面；
+   缺参数直接退出，不提供"默认用配置里的 vault"这种会出事的行为。
+
+   另：宽度用 Emulation.setDeviceMetricsOverride 设定 —— 命令行 --window-size 会被
    Windows 夹到最小 500px，导致 460px 的排版被裁掉右边缘。 */
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+const CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 const PAGE = process.argv[2]
 const OUT = process.argv[3]
+/** 演示数据根（必须是虚构内容）。页面通过 ?root= 读取它，而不是读配置里的真实数据源。 */
+const DEMO_ROOT = process.argv[4]
+if (!PAGE || !OUT || !DEMO_ROOT) {
+  console.error('用法: node scripts/store-shots.mjs <页面URL> <输出目录> <演示数据根>')
+  console.error('  例: node scripts/store-shots.mjs "http://127.0.0.1:3080/dsh-calendar/preview" assets "D:\\demo\\notes"')
+  console.error('  ⚠️ 第三个参数必须是虚构演示数据，绝不能是真实 vault（截图会公开）')
+  process.exit(1)
+}
+const rootQuery = '&root=' + encodeURIComponent(DEMO_ROOT)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const PORT = 9700 + Math.floor(Math.random() * 200)
 
@@ -101,16 +116,18 @@ try {
 
   /* 1..4 是默认皮肤 Y2K —— 文件名保持不变，商城列表里的既有引用不会断。
      5..8 是新增的两套皮肤（Win95 / 赛璐璐）× 浅深。
-     每条 URL 都显式带 ?skin=，免得被上一个 profile 里残留的 localStorage 串味。 */
-  await nav(PAGE + '?skin=y2k&theme=light'); await cap('screenshot-1-light.png', 880)
+     每条 URL 都显式带 ?skin= 与 &root=<演示根>，免得被上一个 profile 里残留的
+     localStorage 串味，也避免任何一张图落到真实数据源上。 */
+  await nav(PAGE + '?skin=y2k&theme=light' + rootQuery); await cap('screenshot-1-light.png', 880)
   await cap('screenshot-2-light-full.png', 1170)
-  await nav(PAGE + '?skin=y2k&theme=dark');  await cap('screenshot-3-dark-full.png', 1170)
+  await nav(PAGE + '?skin=y2k&theme=dark' + rootQuery);  await cap('screenshot-3-dark-full.png', 1170)
   await cap('screenshot-4-dark.png', 880)
 
-  await nav(PAGE + '?skin=win95&theme=light'); await cap('screenshot-5-win95-light.png', 880)
-  await nav(PAGE + '?skin=win95&theme=dark');  await cap('screenshot-6-win95-dark.png', 880)
-  await nav(PAGE + '?skin=cel&theme=light');   await cap('screenshot-7-cel-light.png', 880)
-  await nav(PAGE + '?skin=cel&theme=dark');    await cap('screenshot-8-cel-dark.png', 880)
+  await nav(PAGE + '?skin=win95&theme=light' + rootQuery); await cap('screenshot-5-win95-light.png', 880)
+  await nav(PAGE + '?skin=win95&theme=dark' + rootQuery);  await cap('screenshot-6-win95-dark.png', 880)
+  await nav(PAGE + '?skin=cel&theme=light' + rootQuery);   await cap('screenshot-7-cel-light.png', 880)
+  await nav(PAGE + '?skin=cel&theme=dark' + rootQuery);    await cap('screenshot-8-cel-dark.png', 880)
+  console.log('演示数据根:', DEMO_ROOT)
 } finally {
   cdp.close()
   try { child.kill() } catch {}

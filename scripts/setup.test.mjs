@@ -54,8 +54,8 @@ check('候选摘要：空候选给空串', candidateSummary(null), '')
 
 /* ── host 侧：Daily Notes 配置解析与日期格式归类 ───────────────────────────── */
 check('解析 Daily Notes：folder + format',
-  __setup.parseDailyNotesConfig({ folder: '日历&备忘录', format: 'YYYY-MM-DD' }),
-  { folder: '日历&备忘录', format: 'YYYY-MM-DD' })
+  __setup.parseDailyNotesConfig({ folder: '日记', format: 'YYYY-MM-DD' }),
+  { folder: '日记', format: 'YYYY-MM-DD' })
 check('解析 Daily Notes：缺 format → 默认', __setup.parseDailyNotesConfig({ folder: 'diary' }).format, 'YYYY-MM-DD')
 check('解析 Daily Notes：脏输入不炸', __setup.parseDailyNotesConfig(null), { folder: '', format: 'YYYY-MM-DD' })
 check('日期格式归类：横杠', __setup.dateFormatFor('YYYY-MM-DD'), 'YYYY-MM-DD')

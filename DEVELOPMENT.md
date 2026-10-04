@@ -1,3 +1,5 @@
+> **公开发布说明**：本文里的个人目录名、用户名与真实待办文本已替换为占位符或演示文本（`<user>`、`日记`、`…`）。
+
 # dsh-calendar · 开发与验收记录（DEVELOPMENT）
 
 > 这是**开发/验证日志**：实现细节、逐项实测证据、回归脚本说明、缺陷复盘与排错表。
@@ -160,7 +162,7 @@ dsh-calendar/
 ```json
 {
   "roots": [
-    "C:\\Users\\b2267\\Documents\\Obsidian Vault\\日历&备忘录",
+    "C:\\Users\\<user>\\Documents\\Obsidian Vault\\日记",
     "D:\\what's_today\\notes"
   ],
   "allowAnyRoot": false,
@@ -191,7 +193,7 @@ dsh-calendar/
 Obsidian 侧已配套写好 `.obsidian/daily-notes.json`（原文件若存在会先备份成 `.bak`）：
 
 ```json
-{ "folder": "日历&备忘录", "format": "YYYY-MM-DD", "template": "", "autorun": false }
+{ "folder": "日记", "format": "YYYY-MM-DD", "template": "", "autorun": false }
 ```
 
 于是在 Obsidian 里按「Open today's daily note」就会建在同一个文件夹、用同一种命名 —— 两边自然对齐。
@@ -451,15 +453,15 @@ CSS 已撑满时不插手、挂载后补量能改口、写入幂等（避免 Res
 - [x] **任务正文改写**活体实测：改完磁盘为 `- [ ] 准备周会材料（改成新的写法） 📅 2026-09-20 ⏫ #work`
       （元数据/优先级/标签一字不差）；空/超长/带换行 → **400**，过期 `expect` → **409**；审计 action=`edit`
       （`verify/edit-live.txt`）
-- [x] 新建日记活体实测：无写头 → **403**；带头 → 在 `日历&备忘录\2026-09-16.md` 建出 `# 2026-09-16 星期三`；
+- [x] 新建日记活体实测：无写头 → **403**；带头 → 在 `日记\2026-09-16.md` 建出 `# 2026-09-16 星期三`；
       重复新建 → **409 绝不覆盖**；随后 `/tasks` 把它识别为当天日记（`notes=1`）
-- [x] 数据源实测：`/status` → `workspace.source = config`、`root = …\日历&备忘录`、两个 root 均 `writable`
+- [x] 数据源实测：`/status` → `workspace.source = config`、`root = …\日记`、两个 root 均 `writable`
 - [x] Obsidian 侧配置：`.obsidian/daily-notes.json` 已指向该文件夹（原本不存在，故无 `.bak`）
 - [x] 日记归日实测：日记里没写 📅 的待办算作那天（`回寝室睡觉 → 2026-09-16`、`校安协晚上8点面试 → 2026-09-17`，
       均 `source=note`；`undated=0`）
 - [x] 界面：背景渐变（页面 + 卡片 + 内嵌面板的 `--cal-wash`）、点击波纹（含 `prefers-reduced-motion` 降级）、
       任务正文可就地编辑（回车/失焦提交、`Esc` 取消）、日记块与任务行**不再显示文件名**、成功操作不弹提示
-- [x] **Day Planner 适配**：你 09-19 日记里的 `18:00 - 18:50 吃饭` / `20:10 - 20:50 小平招新` 被正确解析出
+- [x] **Day Planner 适配**：一份演示日记里的 `18:00 - 18:50 …` / `20:10 - 20:50 …`（原文已脱敏） 被正确解析出
       `startTime/endTime/durationMinutes`（`verify/dayplanner-live.txt`）
 - [x] **改时间**活体实测：加时间 → `- [ ] 09:30 - 10:00 准备周会材料 📅 2026-09-20 ⏫ #work`；改成 14:15 - 15:45；
       清除回未安排 —— 三次都只动行首时间，`📅 ⏫ #work` 一字未动
